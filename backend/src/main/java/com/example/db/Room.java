@@ -1,5 +1,7 @@
 package com.example.db;
 
+import java.util.List;
+
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -8,6 +10,8 @@ public class Room {
     @Id
     private String id;
     private String code;
+    private String creatorId;
+    private List<String> memberIds;
 
     public String getId() {
         return id;
@@ -23,5 +27,21 @@ public class Room {
 
     public void setCode(String code) {
         this.code = code;
+    }
+
+    public String getCreatorId() {
+        return creatorId;
+    }
+
+    public void setCreatorId(String creatorId) {
+        this.creatorId = creatorId;
+    }
+
+    public List<String> getMemberIds() {
+        return memberIds;
+    }
+
+    public void setMemberIds(List<String> memberIds) {
+        this.memberIds = memberIds;
     }
 }

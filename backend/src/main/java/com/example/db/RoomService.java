@@ -1,8 +1,7 @@
-
 package com.example.db;
 
 import org.springframework.stereotype.Service;
-
+import org.springframework.context.event.EventListener;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,9 +19,10 @@ public class RoomService {
         this.roomRepository = roomRepository;
     }
 
-    public Room createRoom() {
+    public Room createRoom(String creatorId)  {
         String code = generateRandomCode(4);
         Room room = new Room();
+        room.setCreatorId(creatorId);
         room.setCode(code);
         return roomRepository.save(room);
     }
@@ -33,6 +33,26 @@ public class RoomService {
             code.append(ALPHABET.charAt(random.nextInt(ALPHABET.length())));
         }
         return code.toString();
+    }
+
+    public Room joinRoom(String code, String memberId) {
+        Room room = roomRepository.findByCode(code);
+        room.getMemberIds().add(memberId);
+        return roomRepository.save(room);
+    }
+
+    public boolean checkPermissions(String code, String userId) {
+        Room room = roomRepository.findByCode(code);
+        return room.getCreatorId().equals(userId);
+    }
+
+    @EventListener
+    public void handleCreatorLeavesRoomEvent(CreatorLeavesRoomEvent event) {
+        roomRepository.deleteById(event.getRoomId());
+    }
+
+    public void deleteRoom(String roomId) {
+        roomRepository.deleteById(roomId);
     }
 
     public List<Room> getAllRooms() {

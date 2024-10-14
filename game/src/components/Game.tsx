@@ -1,39 +1,37 @@
-import React, { useEffect, useState } from 'react';
-import { supabase } from '../services/supabaseClient';
-import { useParams } from 'react-router-dom';
-import io from 'socket.io-client';
+import React, { useEffect, useState } from "react";
+import { supabase } from "../services/supabaseClient";
+import { useParams } from "react-router-dom";
 
 const Game = () => {
   const { roomCode } = useParams();
   const [items, setItems] = useState<any[]>([]);
   const [room, setRoom] = useState<any>(null);
-  const [error, setError] = useState('');
-  const socket = io('http://localhost:5173');
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const fetchRoomAndItems = async () => {
-      // Fetch room data
       const { data: roomData, error: roomError } = await supabase
-        .from('rooms')
+        .from("rooms")
         .select()
-        .eq('name', roomCode)
+        .eq("name", roomCode)
         .single();
 
       if (roomError) {
-        setError('Error fetching room data');
+        console.error("Error fetching room data:", roomError);
+        setError("Error fetching room data");
         return;
       }
 
       setRoom(roomData);
 
-      // Fetch items for the game
       const { data: itemsData, error: itemsError } = await supabase
-        .from('items')
-        .select('*')
-        .limit(10); // Adjust the limit as needed
+        .from("items")
+        .select("*")
+        .limit(10);
 
       if (itemsError) {
-        setError('Error fetching items');
+        console.error("Error fetching items:", itemsError);
+        setError("Error fetching items");
         return;
       }
 
@@ -42,13 +40,21 @@ const Game = () => {
 
     fetchRoomAndItems();
 
-    // Set up Socket.io listener
-    socket.on('update', (data) => {
-      setItems((prevItems) => [...prevItems, data]);
-    });
+    const itemsSubscription = supabase
+      .channel("public:items")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "items" },
+        (payload) => {
+          console.log("New item received:", payload.new);
+          setItems((prevItems) => [...prevItems, payload.new]);
+        }
+      )
+      .subscribe();
 
+    // Cleanup function
     return () => {
-      socket.disconnect();
+      supabase.removeChannel(itemsSubscription);
     };
   }, [roomCode]);
 
@@ -65,7 +71,9 @@ const Game = () => {
       <h2 className="text-2xl font-bold mb-4">Room: {roomCode}</h2>
       <ul>
         {items.map((item) => (
-          <li key={item.id} className="p-2 border-b">{item.question}</li>
+          <li key={item.id} className="p-2 border-b">
+            {item.question}
+          </li>
         ))}
       </ul>
     </div>

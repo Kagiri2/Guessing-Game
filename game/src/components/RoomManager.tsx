@@ -21,69 +21,49 @@ const RoomManager: React.FC<RoomManagerProps> = ({ username }) => {
   };
 
   const createRoom = async (): Promise<void> => {
-    // First, get the user's ID
-    const { data: userData, error: userError } = await supabase
-      .from("users")
-      .select("id")
-      .eq("username", username)
-      .single();
-  
-    if (userError || !userData) {
-      setError("Error fetching user data. Please try again.");
-      return;
-    }
-  
-    const userId = userData.id;
-  
     const newRoomCode = generateRoomCode();
-    const { data, error } = await supabase
-      .from("rooms")
-      .insert({ name: newRoomCode, player_count: 1 })
-      .select()
-      .single();
-  
+    const { data, error } = await supabase.rpc("create_room", {
+      p_room_code: newRoomCode,
+      p_creator_username: username,
+    });
+
     if (error) {
       setError("Error creating room. Please try again.");
       return;
     }
-  
-    if (!data) {
+
+    if (data === null) {
       setError("Room created but no data returned. Please try again.");
       return;
     }
-  
-    const createdRoom = data as Room;
-  
-    // Create a new game associated with this room
-    const { error: gameError } = await supabase.from("games").insert({
-      room_id: createdRoom.id,
-      creator_id: userId,  // Use the user's ID instead of username
-      target_score: 10,
-      time_limit: 60,
-    });
-  
-    if (gameError) {
-      setError("Error creating game. Please try again.");
-    } else {
-      navigate(`/game/${newRoomCode}`);
-    }
+
+    const roomId = data;
+
+    localStorage.setItem("username", username);
+    localStorage.setItem("roomId", roomId.toString());
+    navigate(`/game/${newRoomCode}`);
   };
-  
+
   const joinRoom = async (): Promise<void> => {
     if (roomCode.length !== 4) {
       setError("Room code must be 4 characters long.");
       return;
     }
+    const { data, error } = await supabase.rpc("join_room", {
+      p_room_code: roomCode,
+      p_username: username,
+    });
 
-    const { data, error } = await supabase
-      .from("rooms")
-      .select()
-      .eq("name", roomCode)
-      .single();
-
-    if (error || !data) {
-      setError("Room not found. Please check the code and try again.");
-    } else {
+    if (error) {
+      if (error.message.includes("Room is full")) {
+        setError("This room is full. Please try another room.");
+      } else if (error.message.includes("Room not found")) {
+        setError("Room not found. Please check the code and try again.");
+      } else {
+        setError("An error occurred while joining the room. Please try again.");
+      }
+    } else if (data) {
+      localStorage.setItem("username", username);
       navigate(`/game/${roomCode}`);
     }
   };

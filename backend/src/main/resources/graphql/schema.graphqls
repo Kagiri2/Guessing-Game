@@ -1,8 +1,0 @@
-type Room {
-    id: ID
-    code: String
-}
-
-type Query {
-    getAllRooms: [Room]
-}

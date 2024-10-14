@@ -3,9 +3,10 @@ import { supabase } from '../services/supabaseClient';
 import io from 'socket.io-client';
 
 const Game = () => {
+  console.log("Game component rendered");
   const [items, setItems] = useState<any[]>([]);
-  const socket = io('http://localhost:3000');  // Replace with your socket server
-
+  const socket = io('http://localhost:5173');  
+  
   useEffect(() => {
     const fetchData = async () => {
       let { data, error } = await supabase.from('items').select('*');

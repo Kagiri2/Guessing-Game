@@ -13,7 +13,10 @@
   "license": "ISC",
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
+    "axios": "^1.7.7",
     "bite": "^0.1.0-4",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.27.0",

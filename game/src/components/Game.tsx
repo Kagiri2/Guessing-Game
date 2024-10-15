@@ -1,30 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../services/supabaseClient";
 import { useParams, useNavigate } from "react-router-dom";
-
-interface User {
-  id: number;
-  username: string;
-}
-
-interface GamePlayer {
-  id: number;
-  score: number;
-  user_id: number;
-  users: User;
-}
-
-interface Player {
-  id: number;
-  username: string;
-  score: number;
-}
+import { GamePlayer, Player, Room, Item } from "../services/gameInterface";
 
 const Game = () => {
   const { roomCode } = useParams();
   const navigate = useNavigate();
-  const [items, setItems] = useState<any[]>([]);
-  const [room, setRoom] = useState<any>(null);
+  const [items, setItems] = useState<Item[]>([]);
+  const [room, setRoom] = useState<Room | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [error, setError] = useState("");
 
@@ -85,7 +68,7 @@ const Game = () => {
       }
 
       setPlayers(
-        playersData?.map((player: GamePlayer) => ({
+        (playersData as unknown as GamePlayer[])?.map((player) => ({
           id: player.id,
           username: player.users.username,
           score: player.score,
@@ -104,7 +87,7 @@ const Game = () => {
         { event: "INSERT", schema: "public", table: "items" },
         (payload) => {
           console.log("New item received:", payload.new);
-          setItems((prevItems) => [...prevItems, payload.new]);
+          setItems((prevItems) => [...prevItems, payload.new as Item]);
         }
       )
       .subscribe();

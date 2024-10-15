@@ -18,7 +18,8 @@ const Game: React.FC = () => {
       // Fetch room and associated game data
       const { data: roomData, error: roomError } = await supabase
         .from("rooms")
-        .select(`
+        .select(
+          `
           *,
           games (
             id,
@@ -27,7 +28,8 @@ const Game: React.FC = () => {
             time_limit,
             state
           )
-        `)
+        `
+        )
         .eq("name", roomCode)
         .single();
 
@@ -43,14 +45,16 @@ const Game: React.FC = () => {
       // Fetch players in the game
       const { data: playersData, error: playersError } = await supabase
         .from("game_players")
-        .select(`
+        .select(
+          `
           id,
           score,
           users (
             id,
             username
           )
-        `)
+        `
+        )
         .eq("game_id", roomData.games[0].id);
 
       if (playersError) {
@@ -75,11 +79,11 @@ const Game: React.FC = () => {
       .channel(`public:game_players:game_id=eq.${game?.id}`)
       .on(
         "postgres_changes",
-        { 
-          event: "*", 
-          schema: "public", 
+        {
+          event: "*",
+          schema: "public",
           table: "game_players",
-          filter: `game_id=eq.${game?.id}`
+          filter: `game_id=eq.${game?.id}`,
         },
         handlePlayerChange
       )
@@ -93,7 +97,7 @@ const Game: React.FC = () => {
 
   const handlePlayerChange = (payload: any) => {
     console.log("Player change:", payload);
-    
+
     if (payload.eventType === "INSERT") {
       // New player joined
       supabase
@@ -131,15 +135,31 @@ const Game: React.FC = () => {
   const leaveRoom = async () => {
     const username = localStorage.getItem("username");
     if (username && roomCode) {
-      const { error } = await supabase.rpc("leave_room", {
+      const { data, error } = await supabase.rpc("leave_room", {
         p_room_code: roomCode,
         p_username: username,
       });
 
       if (error) {
         console.error("Error leaving room:", error);
+        setError(`Error leaving room: ${error.message}`);
       } else {
-        navigate("/");
+        console.log("Leave room result:", data);
+        if (data && data.length > 0 && data[0].success) {
+          if (data[0].removed_username !== username) {
+            console.error(
+              `Unexpected user removed: ${data[0].removed_username}`
+            );
+            setError(`Unexpected user removed: ${data[0].removed_username}`);
+          } else {
+            localStorage.removeItem("username");
+            localStorage.removeItem("roomId");
+            navigate("/");
+          }
+        } else {
+          console.error("Failed to leave room");
+          setError("Failed to leave room");
+        }
       }
     }
   };
@@ -169,15 +189,23 @@ const Game: React.FC = () => {
     <div className="p-4 bg-white rounded shadow-md w-full max-w-lg mx-auto">
       <h2 className="text-2xl font-bold mb-4">Room: {roomCode}</h2>
       <div className="mb-4">
-        <h3 className="text-xl font-semibold mb-2">Game Status: {game.state}</h3>
+        <h3 className="text-xl font-semibold mb-2">
+          Game Status: {game.state}
+        </h3>
         <p>Target Score: {game.target_score}</p>
-        <p>Time Limit: {game.time_limit ? `${game.time_limit} seconds` : 'No limit'}</p>
+        <p>
+          Time Limit:{" "}
+          {game.time_limit ? `${game.time_limit} seconds` : "No limit"}
+        </p>
       </div>
       <div className="mb-4">
         <h3 className="text-xl font-semibold mb-2">Players:</h3>
         <ul>
           {players.map((player) => (
-            <li key={player.id} className="flex justify-between items-center py-1">
+            <li
+              key={player.id}
+              className="flex justify-between items-center py-1"
+            >
               <span>{player.username}</span>
               <span className="font-bold">{player.score} points</span>
             </li>

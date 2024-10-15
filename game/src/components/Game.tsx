@@ -1,25 +1,31 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../services/supabaseClient";
 import { useParams, useNavigate } from "react-router-dom";
-import { GamePlayer, Player, Room, Item } from "../services/gameInterface";
+import { Player, Room, GameType } from "../services/gameInterface";
 
-const Game = () => {
-  const { roomCode } = useParams();
+const Game: React.FC = () => {
+  const { roomCode } = useParams<{ roomCode: string }>();
   const navigate = useNavigate();
-  const [items, setItems] = useState<Item[]>([]);
   const [room, setRoom] = useState<Room | null>(null);
+  const [game, setGame] = useState<GameType | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string>("");
 
   useEffect(() => {
-    const fetchRoomAndItems = async () => {
-      // Fetch room and associated game
+    const fetchRoomGameAndPlayers = async () => {
+      if (!roomCode) return;
+
+      // Fetch room and associated game data
       const { data: roomData, error: roomError } = await supabase
         .from("rooms")
         .select(`
           *,
-          games!inner (
-            id
+          games (
+            id,
+            creator_id,
+            target_score,
+            time_limit,
+            state
           )
         `)
         .eq("name", roomCode)
@@ -32,29 +38,15 @@ const Game = () => {
       }
 
       setRoom(roomData);
+      setGame(roomData.games[0]);
 
-      // Fetch items
-      const { data: itemsData, error: itemsError } = await supabase
-        .from("items")
-        .select("*")
-        .limit(10);
-
-      if (itemsError) {
-        console.error("Error fetching items:", itemsError);
-        setError("Error fetching items");
-        return;
-      }
-
-      setItems(itemsData || []);
-
-      // Fetch players in the game using the simplified query
+      // Fetch players in the game
       const { data: playersData, error: playersError } = await supabase
         .from("game_players")
         .select(`
           id,
           score,
-          user_id,
-          users!inner (
+          users (
             id,
             username
           )
@@ -68,61 +60,73 @@ const Game = () => {
       }
 
       setPlayers(
-        (playersData as unknown as GamePlayer[])?.map((player) => ({
+        playersData.map((player: any) => ({
           id: player.id,
           username: player.users.username,
           score: player.score,
-        })) || []
+        }))
       );
-      console.log(playersData);
     };
 
-    fetchRoomAndItems();
+    fetchRoomGameAndPlayers();
 
-    // Set up real-time subscriptions
-    const itemsSubscription = supabase
-      .channel("public:items")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "items" },
-        (payload) => {
-          console.log("New item received:", payload.new);
-          setItems((prevItems) => [...prevItems, payload.new as Item]);
-        }
-      )
-      .subscribe();
-
+    // Set up real-time subscription for game_players table
     const playersSubscription = supabase
-      .channel("public:game_players")
+      .channel(`public:game_players:game_id=eq.${game?.id}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "game_players" },
-        (payload) => {
-          console.log("Player change:", payload);
-          fetchRoomAndItems(); 
-        }
+        { 
+          event: "*", 
+          schema: "public", 
+          table: "game_players",
+          filter: `game_id=eq.${game?.id}`
+        },
+        handlePlayerChange
       )
       .subscribe();
 
     // Cleanup function
     return () => {
-      supabase.removeChannel(itemsSubscription);
       supabase.removeChannel(playersSubscription);
     };
-  }, [roomCode]);
+  }, [roomCode, game?.id]);
 
-  useEffect(() => {
-    const handleBeforeUnload = async (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      await leaveRoom();
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, []);
+  const handlePlayerChange = (payload: any) => {
+    console.log("Player change:", payload);
+    
+    if (payload.eventType === "INSERT") {
+      // New player joined
+      supabase
+        .from("users")
+        .select("username")
+        .eq("id", payload.new.user_id)
+        .single()
+        .then(({ data, error }) => {
+          if (!error && data) {
+            const newPlayer: Player = {
+              id: payload.new.id,
+              username: data.username,
+              score: payload.new.score,
+            };
+            setPlayers((prevPlayers) => [...prevPlayers, newPlayer]);
+          }
+        });
+    } else if (payload.eventType === "DELETE") {
+      // Player left
+      setPlayers((prevPlayers) =>
+        prevPlayers.filter((player) => player.id !== payload.old.id)
+      );
+    } else if (payload.eventType === "UPDATE") {
+      // Player data updated (e.g., score changed)
+      setPlayers((prevPlayers) =>
+        prevPlayers.map((player) =>
+          player.id === payload.new.id
+            ? { ...player, score: payload.new.score }
+            : player
+        )
+      );
+    }
+  };
 
   const leaveRoom = async () => {
     const username = localStorage.getItem("username");
@@ -140,17 +144,35 @@ const Game = () => {
     }
   };
 
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      leaveRoom();
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, []);
+
   if (error) {
     return <div className="text-red-500">{error}</div>;
   }
 
-  if (!room) {
+  if (!room || !game) {
     return <div>Loading...</div>;
   }
 
   return (
-    <div className="p-4 bg-white rounded shadow-md w-full max-w-lg">
+    <div className="p-4 bg-white rounded shadow-md w-full max-w-lg mx-auto">
       <h2 className="text-2xl font-bold mb-4">Room: {roomCode}</h2>
+      <div className="mb-4">
+        <h3 className="text-xl font-semibold mb-2">Game Status: {game.state}</h3>
+        <p>Target Score: {game.target_score}</p>
+        <p>Time Limit: {game.time_limit ? `${game.time_limit} seconds` : 'No limit'}</p>
+      </div>
       <div className="mb-4">
         <h3 className="text-xl font-semibold mb-2">Players:</h3>
         <ul>
@@ -162,14 +184,6 @@ const Game = () => {
           ))}
         </ul>
       </div>
-      <h3 className="text-xl font-semibold mb-2">Items:</h3>
-      <ul>
-        {items.map((item) => (
-          <li key={item.id} className="p-2 border-b">
-            {item.question}
-          </li>
-        ))}
-      </ul>
       <button
         onClick={leaveRoom}
         className="mt-4 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded"

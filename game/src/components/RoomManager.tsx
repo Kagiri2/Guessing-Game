@@ -23,19 +23,28 @@ const RoomManager: React.FC<RoomManagerProps> = ({ username }) => {
     });
 
     if (error) {
+      console.error("Error creating room:", error);
       setError("Error creating room. Please try again.");
       return;
     }
 
-    if (data === null) {
+    console.log("Create room response:", data);
+
+    if (!data || data.length === 0) {
       setError("Room created but no data returned. Please try again.");
       return;
     }
 
-    const roomId = data;
+    const roomData = data[0];
+
+    if (!roomData.room_id || !roomData.user_id) {
+      setError("Room created but incomplete data returned. Please try again.");
+      return;
+    }
 
     localStorage.setItem("username", username);
-    localStorage.setItem("roomId", roomId.toString());
+    localStorage.setItem("userId", roomData.user_id.toString());
+    localStorage.setItem("roomId", roomData.room_id.toString());
     navigate(`/game/${newRoomCode}`);
   };
 
@@ -55,11 +64,21 @@ const RoomManager: React.FC<RoomManagerProps> = ({ username }) => {
       } else if (error.message.includes("Room not found")) {
         setError("Room not found. Please check the code and try again.");
       } else {
+        console.error("Error joining room:", error);
         setError("An error occurred while joining the room. Please try again.");
       }
-    } else if (data) {
-      localStorage.setItem("username", username);
-      navigate(`/game/${roomCode}`);
+    } else if (data && data.length > 0) {
+      const joinData = data[0];
+      if (joinData.joined_user_id && joinData.joined_room_id) {
+        localStorage.setItem("username", username);
+        localStorage.setItem("userId", joinData.joined_user_id.toString());
+        localStorage.setItem("roomId", joinData.joined_room_id.toString());
+        navigate(`/game/${roomCode}`);
+      } else {
+        setError("Incomplete data returned when joining room. Please try again.");
+      }
+    } else {
+      setError("No data returned when joining room. Please try again.");
     }
   };
 

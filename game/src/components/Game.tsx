@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../services/supabaseClient";
 import { useParams, useNavigate } from "react-router-dom";
-import { Player, Room, GameType } from "../services/gameInterface";
+import { Player, Room, GameType, GamePlayer } from "../services/gameInterface";
+import GameSettings from "./GameSettings";
 
 const Game: React.FC = () => {
   const { roomCode } = useParams<{ roomCode: string }>();
@@ -10,10 +11,22 @@ const Game: React.FC = () => {
   const [game, setGame] = useState<GameType | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [error, setError] = useState<string>("");
+  const [isLongestStandingPlayer, setIsLongestStandingPlayer] = useState<boolean>(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const userId = localStorage.getItem("userId");
+    if (!userId) {
+      setError("User ID not found. Please rejoin the room.");
+      return;
+    }
+    setCurrentUserId(userId);
+    console.log("Current user ID set:", userId);
+  }, []);
 
   useEffect(() => {
     const fetchRoomGameAndPlayers = async () => {
-      if (!roomCode) return;
+      if (!roomCode || !currentUserId) return;
 
       // Fetch room and associated game data
       const { data: roomData, error: roomError } = await supabase
@@ -48,14 +61,17 @@ const Game: React.FC = () => {
         .select(
           `
           id,
+          user_id,
           score,
+          created_at,
           users (
             id,
             username
           )
         `
         )
-        .eq("game_id", roomData.games[0].id);
+        .eq("game_id", roomData.games[0].id)
+        .order('created_at', { ascending: true });
 
       if (playersError) {
         console.error("Error fetching players:", playersError);
@@ -63,15 +79,20 @@ const Game: React.FC = () => {
         return;
       }
 
-      setPlayers(
-        playersData.map((player: any) => ({
-          id: player.id,
-          username: player.users.username,
-          score: player.score,
-        }))
-      );
-    };
+      const sortedPlayers: Player[] = (playersData as unknown as GamePlayer[]).map((player) => ({
+        id: player.id,
+        username: player.users.username,
+        score: player.score,
+      }));
 
+      setPlayers(sortedPlayers);
+      console.log("Longest standing player ID:", playersData[0].user_id.toString());
+      console.log("Current user ID:", currentUserId);
+      if (sortedPlayers.length > 0) {
+        setIsLongestStandingPlayer(playersData[0].user_id.toString() === currentUserId);
+      }
+    };
+    
     fetchRoomGameAndPlayers();
 
     // Set up real-time subscription for game_players table
@@ -93,7 +114,7 @@ const Game: React.FC = () => {
     return () => {
       supabase.removeChannel(playersSubscription);
     };
-  }, [roomCode, game?.id]);
+  }, [roomCode, game?.id, currentUserId]);
 
   const handlePlayerChange = (payload: any) => {
     console.log("Player change:", payload);
@@ -102,7 +123,7 @@ const Game: React.FC = () => {
       // New player joined
       supabase
         .from("users")
-        .select("username")
+        .select("id, username")
         .eq("id", payload.new.user_id)
         .single()
         .then(({ data, error }) => {
@@ -112,14 +133,26 @@ const Game: React.FC = () => {
               username: data.username,
               score: payload.new.score,
             };
-            setPlayers((prevPlayers) => [...prevPlayers, newPlayer]);
+            setPlayers((prevPlayers) => {
+              const updatedPlayers = [...prevPlayers, newPlayer];
+              // Update isLongestStandingPlayer status
+              if (currentUserId) {
+                setIsLongestStandingPlayer(payload.new.user_id.toString() === currentUserId);
+              }
+              return updatedPlayers;
+            });
           }
         });
     } else if (payload.eventType === "DELETE") {
       // Player left
-      setPlayers((prevPlayers) =>
-        prevPlayers.filter((player) => player.id !== payload.old.id)
-      );
+      setPlayers((prevPlayers) => {
+        const updatedPlayers = prevPlayers.filter((player) => player.id !== payload.old.id);
+        // Update isLongestStandingPlayer status
+        if (currentUserId && updatedPlayers.length > 0) {
+          setIsLongestStandingPlayer(payload.old.user_id.toString() !== currentUserId);
+        }
+        return updatedPlayers;
+      });
     } else if (payload.eventType === "UPDATE") {
       // Player data updated (e.g., score changed)
       setPlayers((prevPlayers) =>
@@ -153,7 +186,7 @@ const Game: React.FC = () => {
             setError(`Unexpected user removed: ${data[0].removed_username}`);
           } else {
             localStorage.removeItem("username");
-            localStorage.removeItem("roomId");
+            localStorage.removeItem("userId");
             navigate("/");
           }
         } else {
@@ -181,7 +214,7 @@ const Game: React.FC = () => {
     return <div className="text-red-500">{error}</div>;
   }
 
-  if (!room || !game) {
+  if (!room || !game || !currentUserId) {
     return <div>Loading...</div>;
   }
 
@@ -192,11 +225,6 @@ const Game: React.FC = () => {
         <h3 className="text-xl font-semibold mb-2">
           Game Status: {game.state}
         </h3>
-        <p>Target Score: {game.target_score}</p>
-        <p>
-          Time Limit:{" "}
-          {game.time_limit ? `${game.time_limit} seconds` : "No limit"}
-        </p>
       </div>
       <div className="mb-4">
         <h3 className="text-xl font-semibold mb-2">Players:</h3>
@@ -212,6 +240,10 @@ const Game: React.FC = () => {
           ))}
         </ul>
       </div>
+      <GameSettings
+        gameId={game.id}
+        isLongestStandingPlayer={isLongestStandingPlayer}
+      />
       <button
         onClick={leaveRoom}
         className="mt-4 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded"

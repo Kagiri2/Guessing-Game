@@ -25,8 +25,11 @@ export interface Room {
 
 export interface Item {
   id: number;
+  category_id: number;
   question: string;
-  // Add other item properties as needed
+  answer: string;
+  image_url: string;
+  created_at: string;
 }
 
 export interface GameType {

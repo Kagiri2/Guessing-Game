@@ -45,7 +45,7 @@ const RoomManager: React.FC<RoomManagerProps> = ({ username }) => {
     localStorage.setItem("username", username);
     localStorage.setItem("userId", roomData.user_id.toString());
     localStorage.setItem("roomId", roomData.room_id.toString());
-    navigate(`/game/${newRoomCode}`);
+    navigate(`/${newRoomCode}`);  
   };
 
   const joinRoom = async (): Promise<void> => {
@@ -73,7 +73,7 @@ const RoomManager: React.FC<RoomManagerProps> = ({ username }) => {
         localStorage.setItem("username", username);
         localStorage.setItem("userId", joinData.joined_user_id.toString());
         localStorage.setItem("roomId", joinData.joined_room_id.toString());
-        navigate(`/game/${roomCode}`);
+        navigate(`/${roomCode}`);  
       } else {
         setError("Incomplete data returned when joining room. Please try again.");
       }

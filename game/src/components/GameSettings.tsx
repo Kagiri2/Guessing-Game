@@ -5,6 +5,7 @@ import { GameType } from '../services/gameInterface';
 interface GameSettingsProps {
   gameId: number;
   isLongestStandingPlayer: boolean;
+  onUpdateGame: (updatedGame: Partial<GameType>) => void;
 }
 
 interface Category {
@@ -12,7 +13,7 @@ interface Category {
   name: string;
 }
 
-const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPlayer }) => {
+const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPlayer, onUpdateGame }) => {
   const [gameSettings, setGameSettings] = useState<GameType | null>(null);
   const [targetScore, setTargetScore] = useState<number>(100);
   const [timeLimit, setTimeLimit] = useState<number | null>(null);
@@ -34,18 +35,8 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
       )
       .subscribe();
 
-    const categoriesSubscription = supabase
-      .channel(`public:categories`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "categories" },
-        handleCategoryChange
-      )
-      .subscribe();
-
     return () => {
       supabase.removeChannel(gamesSubscription);
-      supabase.removeChannel(categoriesSubscription);
     };
   }, [gameId]);
 
@@ -110,21 +101,7 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
       setTargetScore(payload.new.target_score);
       setTimeLimit(payload.new.time_limit);
       setSelectedCategoryId(payload.new.category_id);
-    }
-  };
-
-  const handleCategoryChange = (payload: any) => {
-    console.log("Category change:", payload);
-    if (payload.eventType === "INSERT") {
-      setCategories(prevCategories => [...prevCategories, payload.new]);
-    } else if (payload.eventType === "UPDATE") {
-      setCategories(prevCategories => 
-        prevCategories.map(cat => cat.id === payload.new.id ? payload.new : cat)
-      );
-    } else if (payload.eventType === "DELETE") {
-      setCategories(prevCategories => 
-        prevCategories.filter(cat => cat.id !== payload.old.id)
-      );
+      onUpdateGame(payload.new);
     }
   };
 
@@ -134,13 +111,15 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
       return;
     }
 
+    const updatedSettings = {
+      target_score: targetScore,
+      time_limit: timeLimit,
+      category_id: selectedCategoryId
+    };
+
     const { data, error } = await supabase
       .from('games')
-      .update({ 
-        target_score: targetScore, 
-        time_limit: timeLimit,
-        category_id: selectedCategoryId
-      })
+      .update(updatedSettings)
       .eq('id', gameId)
       .select();
 
@@ -150,6 +129,7 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
     } else {
       setError('');
       setGameSettings(data[0]);
+      onUpdateGame(updatedSettings);
     }
   };
 

@@ -5,8 +5,9 @@ export interface User {
 
 export interface GamePlayer {
   id: number;
-  score: number;
   user_id: number;
+  score: number;
+  created_at: string;
   users: User;
 }
 
@@ -37,4 +38,5 @@ export interface GameType {
   state: "waiting" | "active" | "finished";
   created_at: string;
   updated_at: string;
+  category_id: number | null;
 }

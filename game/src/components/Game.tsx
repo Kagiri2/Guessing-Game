@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../services/supabaseClient";
 import { useParams, useNavigate } from "react-router-dom";
-import { Player, Room, GameType, GamePlayer } from "../services/gameInterface";
+import { Player, Room, GameType, GamePlayer, User } from "../services/gameInterface";
 import GameSettings from "./GameSettings";
 
 const Game: React.FC = () => {
@@ -39,7 +39,8 @@ const Game: React.FC = () => {
             creator_id,
             target_score,
             time_limit,
-            state
+            state,
+            category_id
           )
         `
         )
@@ -56,65 +57,98 @@ const Game: React.FC = () => {
       setGame(roomData.games[0]);
 
       // Fetch players in the game
-      const { data: playersData, error: playersError } = await supabase
-        .from("game_players")
-        .select(
-          `
-          id,
-          user_id,
-          score,
-          created_at,
-          users (
-            id,
-            username
-          )
-        `
-        )
-        .eq("game_id", roomData.games[0].id)
-        .order('created_at', { ascending: true });
-
-      if (playersError) {
-        console.error("Error fetching players:", playersError);
-        setError("Error fetching players");
-        return;
-      }
-
-      const sortedPlayers: Player[] = (playersData as unknown as GamePlayer[]).map((player) => ({
-        id: player.id,
-        username: player.users.username,
-        score: player.score,
-      }));
-
-      setPlayers(sortedPlayers);
-      console.log("Longest standing player ID:", playersData[0].user_id.toString());
-      console.log("Current user ID:", currentUserId);
-      if (sortedPlayers.length > 0) {
-        setIsLongestStandingPlayer(playersData[0].user_id.toString() === currentUserId);
-      }
+      fetchPlayers(roomData.games[0].id);
     };
     
     fetchRoomGameAndPlayers();
+  }, [roomCode, currentUserId]);
 
-    // Set up real-time subscription for game_players table
-    const playersSubscription = supabase
-      .channel(`public:game_players:game_id=eq.${game?.id}`)
+  const fetchPlayers = async (gameId: number) => {
+    const { data: playersData, error: playersError } = await supabase
+      .from("game_players")
+      .select(
+        `
+        id,
+        user_id,
+        score,
+        created_at,
+        users (
+          id,
+          username
+        )
+      `
+      )
+      .eq("game_id", gameId)
+      .order('created_at', { ascending: true });
+
+    if (playersError) {
+      console.error("Error fetching players:", playersError);
+      setError("Error fetching players");
+      return;
+    }
+
+    const sortedPlayers: Player[] = (playersData as unknown as GamePlayer[]).map((player) => ({
+      id: player.id,
+      username: player.users.username,
+      score: player.score,
+    }));
+
+    setPlayers(sortedPlayers);
+    updateLongestStandingPlayer(playersData as unknown as  GamePlayer[]);
+  };
+
+  const updateLongestStandingPlayer = (playersData: GamePlayer[]) => {
+    if (playersData.length > 0 && currentUserId) {
+      setIsLongestStandingPlayer(playersData[0].user_id.toString() === currentUserId);
+    }
+  };
+
+  useEffect(() => {
+    if (!game || !room) return;
+
+    const gamePlayersSubscription = supabase
+      .channel(`public:game_players:game_id=eq.${game.id}`)
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "game_players",
-          filter: `game_id=eq.${game?.id}`,
-        },
+        { event: "*", schema: "public", table: "game_players", filter: `game_id=eq.${game.id}` },
         handlePlayerChange
       )
       .subscribe();
 
-    // Cleanup function
+    const gamesSubscription = supabase
+      .channel(`public:games:id=eq.${game.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "games", filter: `id=eq.${game.id}` },
+        handleGameChange
+      )
+      .subscribe();
+
+    const roomsSubscription = supabase
+      .channel(`public:rooms:id=eq.${room.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "rooms", filter: `id=eq.${room.id}` },
+        handleRoomChange
+      )
+      .subscribe();
+
+    const userGuessesSubscription = supabase
+      .channel(`public:user_guesses:game_id=eq.${game.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_guesses", filter: `game_id=eq.${game.id}` },
+        handleUserGuessChange
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(playersSubscription);
+      supabase.removeChannel(gamePlayersSubscription);
+      supabase.removeChannel(gamesSubscription);
+      supabase.removeChannel(roomsSubscription);
+      supabase.removeChannel(userGuessesSubscription);
     };
-  }, [roomCode, game?.id, currentUserId]);
+  }, [game, room]);
 
   const handlePlayerChange = (payload: any) => {
     console.log("Player change:", payload);
@@ -135,10 +169,13 @@ const Game: React.FC = () => {
             };
             setPlayers((prevPlayers) => {
               const updatedPlayers = [...prevPlayers, newPlayer];
-              // Update isLongestStandingPlayer status
-              if (currentUserId) {
-                setIsLongestStandingPlayer(payload.new.user_id.toString() === currentUserId);
-              }
+              updateLongestStandingPlayer(updatedPlayers.map(p => ({
+                id: p.id,
+                user_id: parseInt(currentUserId || '0'),
+                score: p.score,
+                created_at: new Date().toISOString(),
+                users: { id: parseInt(currentUserId || '0'), username: p.username }
+              })));
               return updatedPlayers;
             });
           }
@@ -147,10 +184,13 @@ const Game: React.FC = () => {
       // Player left
       setPlayers((prevPlayers) => {
         const updatedPlayers = prevPlayers.filter((player) => player.id !== payload.old.id);
-        // Update isLongestStandingPlayer status
-        if (currentUserId && updatedPlayers.length > 0) {
-          setIsLongestStandingPlayer(payload.old.user_id.toString() !== currentUserId);
-        }
+        updateLongestStandingPlayer(updatedPlayers.map(p => ({
+          id: p.id,
+          user_id: parseInt(currentUserId || '0'),
+          score: p.score,
+          created_at: new Date().toISOString(),
+          users: { id: parseInt(currentUserId || '0'), username: p.username }
+        })));
         return updatedPlayers;
       });
     } else if (payload.eventType === "UPDATE") {
@@ -163,6 +203,22 @@ const Game: React.FC = () => {
         )
       );
     }
+  };
+
+  const handleGameChange = (payload: any) => {
+    console.log("Game change:", payload);
+    setGame(prevGame => ({ ...prevGame, ...payload.new }));
+  };
+
+  const handleRoomChange = (payload: any) => {
+    console.log("Room change:", payload);
+    setRoom(prevRoom => ({ ...prevRoom, ...payload.new }));
+  };
+
+  const handleUserGuessChange = (payload: any) => {
+    console.log("User guess change:", payload);
+    // Handle user guess changes (e.g., update scores, show new guesses)
+    // You might want to implement this based on your game logic
   };
 
   const leaveRoom = async () => {
@@ -178,21 +234,9 @@ const Game: React.FC = () => {
         setError(`Error leaving room: ${error.message}`);
       } else {
         console.log("Leave room result:", data);
-        if (data && data.length > 0 && data[0].success) {
-          if (data[0].removed_username !== username) {
-            console.error(
-              `Unexpected user removed: ${data[0].removed_username}`
-            );
-            setError(`Unexpected user removed: ${data[0].removed_username}`);
-          } else {
-            localStorage.removeItem("username");
-            localStorage.removeItem("userId");
-            navigate("/");
-          }
-        } else {
-          console.error("Failed to leave room");
-          setError("Failed to leave room");
-        }
+        localStorage.removeItem("username");
+        localStorage.removeItem("userId");
+        navigate("/");
       }
     }
   };

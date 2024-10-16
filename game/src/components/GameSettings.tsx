@@ -7,15 +7,55 @@ interface GameSettingsProps {
   isLongestStandingPlayer: boolean;
 }
 
+interface Category {
+  id: number;
+  name: string;
+}
+
 const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPlayer }) => {
   const [gameSettings, setGameSettings] = useState<GameType | null>(null);
   const [targetScore, setTargetScore] = useState<number>(100);
   const [timeLimit, setTimeLimit] = useState<number | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  const [questionCount, setQuestionCount] = useState<number | null>(null);
   const [error, setError] = useState<string>('');
 
   useEffect(() => {
     fetchGameSettings();
+    fetchCategories();
+
+    const gamesSubscription = supabase
+      .channel(`public:games:id=eq.${gameId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "games", filter: `id=eq.${gameId}` },
+        handleGameChange
+      )
+      .subscribe();
+
+    const categoriesSubscription = supabase
+      .channel(`public:categories`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "categories" },
+        handleCategoryChange
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(gamesSubscription);
+      supabase.removeChannel(categoriesSubscription);
+    };
   }, [gameId]);
+
+  useEffect(() => {
+    if (selectedCategoryId) {
+      fetchQuestionCount(selectedCategoryId);
+    } else {
+      setQuestionCount(null);
+    }
+  }, [selectedCategoryId]);
 
   const fetchGameSettings = async () => {
     const { data, error } = await supabase
@@ -31,6 +71,60 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
       setGameSettings(data);
       setTargetScore(data.target_score);
       setTimeLimit(data.time_limit);
+      setSelectedCategoryId(data.category_id);
+    }
+  };
+
+  const fetchCategories = async () => {
+    const { data, error } = await supabase
+      .from('categories')
+      .select('*')
+      .order('name');
+
+    if (error) {
+      console.error('Error fetching categories:', error);
+      setError('Failed to load categories');
+    } else if (data) {
+      setCategories(data);
+    }
+  };
+
+  const fetchQuestionCount = async (categoryId: number) => {
+    const { count, error } = await supabase
+      .from('items')
+      .select('*', { count: 'exact', head: true })
+      .eq('category_id', categoryId);
+
+    if (error) {
+      console.error('Error fetching question count:', error);
+      setError('Failed to load question count');
+    } else {
+      setQuestionCount(count);
+    }
+  };
+
+  const handleGameChange = (payload: any) => {
+    console.log("Game settings change:", payload);
+    if (payload.new) {
+      setGameSettings(prevSettings => ({ ...prevSettings, ...payload.new }));
+      setTargetScore(payload.new.target_score);
+      setTimeLimit(payload.new.time_limit);
+      setSelectedCategoryId(payload.new.category_id);
+    }
+  };
+
+  const handleCategoryChange = (payload: any) => {
+    console.log("Category change:", payload);
+    if (payload.eventType === "INSERT") {
+      setCategories(prevCategories => [...prevCategories, payload.new]);
+    } else if (payload.eventType === "UPDATE") {
+      setCategories(prevCategories => 
+        prevCategories.map(cat => cat.id === payload.new.id ? payload.new : cat)
+      );
+    } else if (payload.eventType === "DELETE") {
+      setCategories(prevCategories => 
+        prevCategories.filter(cat => cat.id !== payload.old.id)
+      );
     }
   };
 
@@ -42,7 +136,11 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
 
     const { data, error } = await supabase
       .from('games')
-      .update({ target_score: targetScore, time_limit: timeLimit })
+      .update({ 
+        target_score: targetScore, 
+        time_limit: timeLimit,
+        category_id: selectedCategoryId
+      })
       .eq('id', gameId)
       .select();
 
@@ -52,7 +150,6 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
     } else {
       setError('');
       setGameSettings(data[0]);
-      // You might want to add a success message here
     }
   };
 
@@ -86,6 +183,28 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
             disabled={!isLongestStandingPlayer}
           />
         </div>
+        <div>
+          <label htmlFor="category" className="block">Category:</label>
+          <select
+            id="category"
+            value={selectedCategoryId || ''}
+            onChange={(e) => setSelectedCategoryId(Number(e.target.value) || null)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            disabled={!isLongestStandingPlayer}
+          >
+            <option value="">Select a category</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+          {questionCount !== null && (
+            <p className="mt-1 text-sm text-gray-600">
+              Number of questions in this category: {questionCount}
+            </p>
+          )}
+        </div>
         {isLongestStandingPlayer && (
           <button
             onClick={updateGameSettings}
@@ -100,6 +219,7 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
         <h4 className="font-semibold">Current Settings:</h4>
         <p>Target Score: {gameSettings.target_score}</p>
         <p>Time Limit: {gameSettings.time_limit ? `${gameSettings.time_limit} seconds` : 'No limit'}</p>
+        <p>Category: {categories.find(c => c.id === gameSettings.category_id)?.name || 'Not set'}</p>
         <p>Game State: {gameSettings.state}</p>
       </div>
     </div>

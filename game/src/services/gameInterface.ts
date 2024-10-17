@@ -42,4 +42,7 @@ export interface GameType {
   created_at: string;
   updated_at: string;
   category_id: number | null;
+  current_item: Item | null;
+  round_start_time: string | null;
 }
+

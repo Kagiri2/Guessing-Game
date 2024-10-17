@@ -41,7 +41,9 @@ const Game: React.FC = () => {
             target_score,
             time_limit,
             state,
-            category_id
+            category_id,
+            current_item,
+            round_start_time
           )
         `
         )
@@ -51,6 +53,7 @@ const Game: React.FC = () => {
       if (roomError) throw roomError;
 
       console.log("Fetched room data:", roomData);
+      console.log("Time limit from database:", roomData.games[0].time_limit);
       setRoom(roomData);
       setGame(roomData.games[0]);
       setGameStarted(roomData.games[0].state === 'in_progress');
@@ -204,6 +207,7 @@ const Game: React.FC = () => {
     setGame(prevGame => {
       const updatedGame = { ...prevGame, ...payload.new };
       setGameStarted(updatedGame.state === 'in_progress');
+      console.log('Updated game state:', updatedGame);
       return updatedGame;
     });
   };
@@ -246,6 +250,9 @@ const Game: React.FC = () => {
         console.log('Game started successfully:', data[0]);
         setGameStarted(true);
         setGame(prevGame => ({ ...prevGame, ...data[0] }));
+        
+        // Start the first round
+        await startNextRound();
       } else {
         throw new Error('No data returned when starting the game');
       }
@@ -254,6 +261,48 @@ const Game: React.FC = () => {
       setError('Failed to start game. Please try again.');
     }
   };
+
+  const startNextRound = async () => {
+    if (!game) return;
+
+    try {
+      const { data, error } = await supabase.rpc('start_new_round', { p_game_id: game.id });
+      
+      if (error) throw error;
+
+      console.log('New round started:', data);
+      
+      // Update the game state with the new round data
+      setGame(prevGame => ({
+        ...prevGame,
+        current_item: data.item,
+        round_start_time: data.round_start_time
+      }));
+    } catch (error) {
+      console.error('Error starting new round:', error);
+      setError('Failed to start new round. Please try again.');
+    }
+  };
+
+  useEffect(() => {
+    if (gameStarted && isLongestStandingPlayer) {
+      const checkRoundEnd = async () => {
+        if (!game || !game.round_start_time || !game.time_limit) return;
+
+        const now = new Date().getTime();
+        const roundEndTime = new Date(game.round_start_time).getTime() + (game.time_limit * 1000);
+
+        if (now >= roundEndTime) {
+          console.log('Round ended, starting next round');
+          await startNextRound();
+        }
+      };
+
+      const interval = setInterval(checkRoundEnd, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [gameStarted, isLongestStandingPlayer, game]);
 
   const leaveRoom = async () => {
     const username = localStorage.getItem("username");
@@ -325,7 +374,13 @@ const Game: React.FC = () => {
           <GameSettings
             gameId={game.id}
             isLongestStandingPlayer={isLongestStandingPlayer}
-            onUpdateGame={(updatedGame) => setGame(prevGame => ({ ...prevGame, ...updatedGame }))}
+            onUpdateGame={(updatedGame) => {
+              setGame(prevGame => {
+                const newGame = { ...prevGame, ...updatedGame };
+                console.log('Game settings updated:', newGame);
+                return newGame;
+              });
+            }}
           />
           {isLongestStandingPlayer && (
             <button
@@ -341,7 +396,10 @@ const Game: React.FC = () => {
           gameId={game.id}
           players={players}
           currentUserId={currentUserId}
-          gameSettings={game}
+          gameSettings={{
+            ...game,
+            time_limit: game.time_limit === null ? 0 : game.time_limit
+          }}
         />
       )}
       <button

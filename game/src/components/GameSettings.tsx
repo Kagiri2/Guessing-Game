@@ -113,7 +113,7 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
 
     const updatedSettings = {
       target_score: targetScore,
-      time_limit: timeLimit,
+      time_limit: timeLimit === 0 ? null : timeLimit, 
       category_id: selectedCategoryId
     };
 
@@ -130,6 +130,7 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
       setError('');
       setGameSettings(data[0]);
       onUpdateGame(updatedSettings);
+      console.log('Updated game settings:', updatedSettings); // Add this log
     }
   };
 

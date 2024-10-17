@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../services/supabaseClient';
-import { Player, GameType, Item } from '../services/gameInterface';
+import React, { useState, useEffect, useCallback } from "react";
+import { supabase } from "../services/supabaseClient";
+import { Player, GameType, Item } from "../services/gameInterface";
 
 interface GamePlayProps {
   gameId: number;
@@ -9,135 +9,161 @@ interface GamePlayProps {
   gameSettings: GameType;
 }
 
-const GamePlay: React.FC<GamePlayProps> = ({ gameId, players, currentUserId, gameSettings }) => {
+const GamePlay: React.FC<GamePlayProps> = ({
+  gameId,
+  players,
+  currentUserId,
+  gameSettings,
+}) => {
   const [currentItem, setCurrentItem] = useState<Item | null>(null);
-  const [userGuess, setUserGuess] = useState<string>('');
+  const [userGuess, setUserGuess] = useState<string>("");
   const [roundTimer, setRoundTimer] = useState<number | null>(null);
-  const [roundStartTime, setRoundStartTime] = useState<number | null>(null);
-  const [error, setError] = useState<string>('');
+  const [roundStartTime, setRoundStartTime] = useState<Date | null>(null);
+  const [error, setError] = useState<string>("");
 
-  const fetchNextItem = useCallback(async () => {
-    if (!gameSettings.category_id) {
-      console.error('No category_id provided in gameSettings:', gameSettings);
-      setError('Game settings are incomplete. Please try rejoining the game.');
-      return;
-    }
-  
+  const fetchGameState = useCallback(async () => {
     try {
-      console.log('Fetching next item for category:', gameSettings.category_id);
       const { data, error } = await supabase
-        .from('items')
-        .select('*')
-        .eq('category_id', gameSettings.category_id)
-        .limit(1)
+        .from("games")
+        .select("current_item, round_start_time")
+        .eq("id", gameId)
         .single();
-  
+
       if (error) throw error;
-  
+
       if (data) {
-        console.log('Fetched item:', data);
-        setCurrentItem(data);
-        setRoundStartTime(Date.now());
-        setRoundTimer(gameSettings.time_limit || null);
-      } else {
-        setError('No items found for this category');
+        setCurrentItem(data.current_item);
+        setRoundStartTime(new Date(data.round_start_time));
       }
     } catch (error) {
-      console.error('Error fetching next item:', error);
-      setError('Failed to load next question. Please try again.');
+      console.error("Error fetching game state:", error);
+      setError("Failed to load game state. Please try again.");
     }
-  }, [gameSettings.category_id, gameSettings.time_limit]);
+  }, [gameId]);
 
   useEffect(() => {
-    fetchNextItem();
-    const userGuessesSubscription = setupRealTimeSubscriptions();
+    fetchGameState();
+    const gameStateSubscription = setupRealTimeSubscriptions();
     return () => {
-      supabase.removeChannel(userGuessesSubscription);
+      supabase.removeChannel(gameStateSubscription);
     };
-  }, [fetchNextItem]);
+  }, [fetchGameState]);
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    const updateTimer = () => {
+      if (roundStartTime && gameSettings.time_limit) {
+        const now = new Date();
+        const elapsedSeconds = Math.floor(
+          (now.getTime() - roundStartTime.getTime()) / 1000
+        );
+        const remainingSeconds = Math.max(
+          0,
+          gameSettings.time_limit - elapsedSeconds
+        );
+        setRoundTimer(remainingSeconds);
+
+        if (remainingSeconds > 0) {
+          timer = setTimeout(updateTimer, 1000);
+        } else {
+          console.log("Timer reached zero, waiting for new round to start");
+        }
+      }
+    };
+
+    console.log('Round start time:', roundStartTime);
+    console.log('Game settings time limit:', gameSettings.time_limit);
+
+    updateTimer();
+
+    return () => clearTimeout(timer);
+  }, [roundStartTime, gameSettings.time_limit]);
 
   const setupRealTimeSubscriptions = () => {
     return supabase
-      .channel(`public:user_guesses:game_id=eq.${gameId}`)
+      .channel(`public:games:id=eq.${gameId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "user_guesses", filter: `game_id=eq.${gameId}` },
-        handleUserGuessChange
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "games",
+          filter: `id=eq.${gameId}`,
+        },
+        handleGameStateChange
       )
       .subscribe();
   };
 
-  const handleUserGuessChange = (payload: any) => {
-    console.log("User guess change:", payload);
-    // Update the UI based on the new guess
-    // You might want to show who made a correct guess, update scores, etc.
+  const handleGameStateChange = (payload: any) => {
+    console.log("Game state change:", payload);
+    if (payload.new) {
+      setCurrentItem(payload.new.current_item);
+      setRoundStartTime(new Date(payload.new.round_start_time));
+      setUserGuess("");
+    }
   };
 
   const submitGuess = async () => {
     if (!currentItem || !userGuess.trim()) return;
 
-    const isCorrect = userGuess.toLowerCase() === currentItem.answer.toLowerCase();
+    const isCorrect =
+      userGuess.toLowerCase() === currentItem.answer.toLowerCase();
+    const currentPlayer = players.find(
+      (p) => p.id.toString() === currentUserId
+    );
+
+    if (!currentPlayer) {
+      console.error("Current player not found:", currentUserId, players);
+      setError("Failed to submit guess. Player not found.");
+      return;
+    }
 
     try {
       const { data, error } = await supabase
-        .from('user_guesses')
+        .from("user_guesses")
         .insert({
           item_id: currentItem.id,
-          game_player_id: players.find(p => p.id.toString() === currentUserId)?.id,
+          game_id: gameId,
+          game_player_id: currentPlayer.id,
           guessed_answer: userGuess,
-          correct: isCorrect
-        });
+          correct: isCorrect,
+        })
+        .select()
+        .single();
 
       if (error) throw error;
 
-      console.log('Guess submitted:', data);
-      setUserGuess('');
-      
+      console.log("Guess submitted:", data);
+      setUserGuess("");
+
       if (isCorrect) {
-        console.log('Correct guess!');
-        await updatePlayerScore();
-        fetchNextItem();
+        console.log("Correct guess!");
+        await updatePlayerScore(currentPlayer.id);
       }
     } catch (error) {
-      console.error('Error submitting guess:', error);
-      setError('Failed to submit guess. Please try again.');
+      console.error("Error submitting guess:", error);
+      setError("Failed to submit guess. Please try again.");
     }
   };
 
-  const updatePlayerScore = async () => {
+  const updatePlayerScore = async (playerId: number) => {
     try {
       const { data, error } = await supabase
-        .from('game_players')
-        .update({ score: supabase.rpc('increment', { x: 1 }) })
-        .eq('game_id', gameId)
-        .eq('user_id', currentUserId);
+        .from("game_players")
+        .update({ score: supabase.rpc("increment", { x: 1 }) })
+        .eq("id", playerId)
+        .select();
 
       if (error) throw error;
 
-      console.log('Player score updated:', data);
+      console.log("Player score updated:", data);
     } catch (error) {
-      console.error('Error updating player score:', error);
-      setError('Failed to update score. The game will continue, but scores may be inaccurate.');
+      console.error("Error updating player score:", error);
+      setError(
+        "Failed to update score. The game will continue, but scores may be inaccurate."
+      );
     }
   };
-
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (roundTimer !== null && roundTimer > 0) {
-      timer = setInterval(() => {
-        setRoundTimer(prev => {
-          if (prev !== null && prev > 0) {
-            return prev - 1;
-          } else {
-            clearInterval(timer);
-            fetchNextItem();
-            return null;
-          }
-        });
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [roundTimer, fetchNextItem]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUserGuess(e.target.value);
@@ -149,13 +175,17 @@ const GamePlay: React.FC<GamePlayProps> = ({ gameId, players, currentUserId, gam
   };
 
   if (!currentItem) {
-    return <div>Loading question...</div>;
+    return <div>Waiting for the next question...</div>;
   }
 
   return (
     <div className="space-y-4">
       <div className="text-center">
-        <img src={currentItem.image_url} alt="Question" className="mx-auto max-w-full h-auto" />
+        <img
+          src={currentItem.image_url}
+          alt="Question"
+          className="mx-auto max-w-full h-auto"
+        />
         <p className="mt-2 text-xl font-bold">{currentItem.question}</p>
       </div>
       {roundTimer !== null && (

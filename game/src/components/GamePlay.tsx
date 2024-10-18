@@ -59,8 +59,8 @@ const GamePlay: React.FC<GamePlayProps> = ({
       if (roundStartTime && gameSettings.time_limit) {
         const now = new Date().getTime();
         const startTime = new Date(roundStartTime).getTime();
-        const elapsedSeconds = gameSettings.time_limit;
-        console.log(elapsedSeconds,gameSettings.time_limit);
+        const elapsedSeconds = Math.floor((now - startTime) / 1000);
+        
         if (elapsedSeconds >= gameSettings.time_limit) {
           console.log("Time's up, starting next round");
           startNextRound();

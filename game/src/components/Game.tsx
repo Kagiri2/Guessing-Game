@@ -208,6 +208,7 @@ const Game: React.FC = () => {
       const updatedGame = { ...prevGame, ...payload.new };
       setGameStarted(updatedGame.state === 'in_progress');
       console.log('Updated game state:', updatedGame);
+      console.log('New time limit:', updatedGame.time_limit);
       return updatedGame;
     });
   };
@@ -262,7 +263,7 @@ const Game: React.FC = () => {
     }
   };
 
-  const startNextRound = async () => {
+  const startNextRound = useCallback(async () => {
     if (!game) return;
 
     try {
@@ -272,37 +273,20 @@ const Game: React.FC = () => {
 
       console.log('New round started:', data);
       
-      // Update the game state with the new round data
-      setGame(prevGame => ({
-        ...prevGame,
-        current_item: data.item,
-        round_start_time: data.round_start_time
-      }));
+      setGame(prevGame => {
+        const updatedGame = {
+          ...prevGame,
+          current_item: data.item,
+          round_start_time: data.round_start_time
+        };
+        console.log('Updated game state after new round:', updatedGame);
+        return updatedGame;
+      });
     } catch (error) {
       console.error('Error starting new round:', error);
       setError('Failed to start new round. Please try again.');
     }
-  };
-
-  useEffect(() => {
-    if (gameStarted && isLongestStandingPlayer) {
-      const checkRoundEnd = async () => {
-        if (!game || !game.round_start_time || !game.time_limit) return;
-
-        const now = new Date().getTime();
-        const roundEndTime = new Date(game.round_start_time).getTime() + (game.time_limit * 1000);
-
-        if (now >= roundEndTime) {
-          console.log('Round ended, starting next round');
-          await startNextRound();
-        }
-      };
-
-      const interval = setInterval(checkRoundEnd, 1000);
-
-      return () => clearInterval(interval);
-    }
-  }, [gameStarted, isLongestStandingPlayer, game]);
+  }, [game]);
 
   const leaveRoom = async () => {
     const username = localStorage.getItem("username");
@@ -378,6 +362,7 @@ const Game: React.FC = () => {
               setGame(prevGame => {
                 const newGame = { ...prevGame, ...updatedGame };
                 console.log('Game settings updated:', newGame);
+                console.log('New time limit:', newGame.time_limit);
                 return newGame;
               });
             }}
@@ -400,6 +385,7 @@ const Game: React.FC = () => {
             ...game,
             time_limit: game.time_limit === null ? 0 : game.time_limit
           }}
+          startNextRound={startNextRound}
         />
       )}
       <button

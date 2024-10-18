@@ -7,6 +7,7 @@ interface GamePlayProps {
   players: Player[];
   currentUserId: string;
   gameSettings: GameType;
+  startNextRound: () => Promise<void>;
 }
 
 const GamePlay: React.FC<GamePlayProps> = ({
@@ -14,32 +15,35 @@ const GamePlay: React.FC<GamePlayProps> = ({
   players,
   currentUserId,
   gameSettings,
+  startNextRound,
 }) => {
   const [currentItem, setCurrentItem] = useState<Item | null>(null);
   const [userGuess, setUserGuess] = useState<string>("");
-  const [roundTimer, setRoundTimer] = useState<number | null>(null);
-  const [roundStartTime, setRoundStartTime] = useState<Date | null>(null);
+  const [roundTimer, setRoundTimer] = useState<number>(gameSettings.time_limit);
+  const [roundStartTime, setRoundStartTime] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
 
   const fetchGameState = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("games")
-        .select("current_item, round_start_time")
+        .select("current_item, round_start_time, time_limit")
         .eq("id", gameId)
         .single();
 
       if (error) throw error;
 
       if (data) {
+        console.log("Fetched game state:", data);
         setCurrentItem(data.current_item);
-        setRoundStartTime(new Date(data.round_start_time));
+        setRoundStartTime(data.round_start_time);
+        setRoundTimer(gameSettings.time_limit);
       }
     } catch (error) {
       console.error("Error fetching game state:", error);
       setError("Failed to load game state. Please try again.");
     }
-  }, [gameId]);
+  }, [gameId, gameSettings.time_limit]);
 
   useEffect(() => {
     fetchGameState();
@@ -48,35 +52,39 @@ const GamePlay: React.FC<GamePlayProps> = ({
       supabase.removeChannel(gameStateSubscription);
     };
   }, [fetchGameState]);
+
   useEffect(() => {
     let timer: NodeJS.Timeout;
     const updateTimer = () => {
       if (roundStartTime && gameSettings.time_limit) {
-        const now = new Date();
-        const elapsedSeconds = Math.floor(
-          (now.getTime() - roundStartTime.getTime()) / 1000
-        );
-        const remainingSeconds = Math.max(
-          0,
-          gameSettings.time_limit - elapsedSeconds
-        );
+        const now = new Date().getTime();
+        const startTime = new Date(roundStartTime).getTime();
+        const elapsedSeconds = gameSettings.time_limit;
+        console.log(elapsedSeconds,gameSettings.time_limit);
+        if (elapsedSeconds >= gameSettings.time_limit) {
+          console.log("Time's up, starting next round");
+          startNextRound();
+          return;
+        }
+
+        const remainingSeconds = gameSettings.time_limit - elapsedSeconds;
+        console.log("Calculating timer:", {
+          now,
+          startTime,
+          elapsedSeconds,
+          remainingSeconds,
+          timeLimit: gameSettings.time_limit
+        });
         setRoundTimer(remainingSeconds);
 
-        if (remainingSeconds > 0) {
-          timer = setTimeout(updateTimer, 1000);
-        } else {
-          console.log("Timer reached zero, waiting for new round to start");
-        }
+        timer = setTimeout(updateTimer, 1000);
       }
     };
-
-    console.log('Round start time:', roundStartTime);
-    console.log('Game settings time limit:', gameSettings.time_limit);
 
     updateTimer();
 
     return () => clearTimeout(timer);
-  }, [roundStartTime, gameSettings.time_limit]);
+  }, [roundStartTime, gameSettings.time_limit, startNextRound]);
 
   const setupRealTimeSubscriptions = () => {
     return supabase
@@ -98,7 +106,8 @@ const GamePlay: React.FC<GamePlayProps> = ({
     console.log("Game state change:", payload);
     if (payload.new) {
       setCurrentItem(payload.new.current_item);
-      setRoundStartTime(new Date(payload.new.round_start_time));
+      setRoundStartTime(payload.new.round_start_time);
+      setRoundTimer(gameSettings.time_limit);
       setUserGuess("");
     }
   };
@@ -188,11 +197,11 @@ const GamePlay: React.FC<GamePlayProps> = ({
         />
         <p className="mt-2 text-xl font-bold">{currentItem.question}</p>
       </div>
-      {roundTimer !== null && (
-        <div className="text-center">
-          <p>Time remaining: {roundTimer} seconds</p>
-        </div>
-      )}
+      <div className="text-center">
+        <p>Time remaining: {Math.max(0, roundTimer)} seconds</p>
+        <p>Round start time: {new Date(roundStartTime || '').toLocaleString()}</p>
+        <p>Time limit: {gameSettings.time_limit} seconds</p>
+      </div>
       <form onSubmit={handleSubmit} className="flex space-x-2">
         <input
           type="text"

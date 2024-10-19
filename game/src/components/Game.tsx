@@ -31,7 +31,7 @@ const Game: React.FC = () => {
       if (playersData.length > 0 && currentUserId) {
         const isLongest = playersData[0].user_id.toString() === currentUserId;
         setIsLongestStandingPlayer(isLongest);
-        console.log("Is longest standing player:", isLongest);
+        //console.log("Is longest standing player:", isLongest);
       }
     },
     [currentUserId]
@@ -59,7 +59,7 @@ const Game: React.FC = () => {
 
         if (playersError) throw playersError;
 
-        console.log("Fetched players data:", playersData);
+        //console.log("Fetched players data:", playersData);
         const sortedPlayers: Player[] = (
           playersData as unknown as GamePlayer[]
         ).map((player) => ({
@@ -90,7 +90,7 @@ const Game: React.FC = () => {
       if (error) throw error;
 
       if (data) {
-        console.log("Fetched game state:", data);
+        //console.log("Fetched game state:", data);
         setGame(data);
         setGameStarted(data.state === "in_progress");
       }
@@ -126,8 +126,8 @@ const Game: React.FC = () => {
 
       if (roomError) throw roomError;
 
-      console.log("Fetched room data:", roomData);
-      console.log("Time limit from database:", roomData.games[0].time_limit);
+      //console.log("Fetched room data:", roomData);
+      //console.log("Time limit from database:", roomData.games[0].time_limit);
       setRoom(roomData);
       setGame(roomData.games[0]);
       setGameStarted(roomData.games[0].state === "in_progress");
@@ -203,7 +203,7 @@ const Game: React.FC = () => {
   }, [game, room]);
 
   const handlePlayerChange = (payload: any) => {
-    console.log("Player change:", payload);
+    //console.log("Player change:", payload);
 
     if (payload.eventType === "INSERT" || payload.eventType === "DELETE") {
       fetchPlayers(game!.id);
@@ -219,19 +219,19 @@ const Game: React.FC = () => {
   };
 
   const handleGameChange = (payload: any) => {
-    console.log("Game change:", payload);
+    //console.log("Game change:", payload);
     if (payload.new) {
       setGame((prevGame) => {
         const updatedGame = { ...prevGame, ...payload.new };
         setGameStarted(updatedGame.state === "in_progress");
-        console.log("Updated game state:", updatedGame);
+        //console.log("Updated game state:", updatedGame);
         return updatedGame;
       });
     }
   };
 
   const handleRoomChange = (payload: any) => {
-    console.log("Room change:", payload);
+    //console.log("Room change:", payload);
     setRoom((prevRoom) => ({ ...prevRoom, ...payload.new }));
   };
 
@@ -251,7 +251,7 @@ const Game: React.FC = () => {
       return;
     }
 
-    console.log("Starting game with settings:", game);
+    //console.log("Starting game with settings:", game);
 
     try {
       const { data, error } = await supabase
@@ -262,10 +262,10 @@ const Game: React.FC = () => {
 
       if (error) throw error;
 
-      console.log("Game start response:", data);
+      //console.log("Game start response:", data);
 
       if (data && data.length > 0) {
-        console.log("Game started successfully:", data[0]);
+        //console.log("Game started successfully:", data[0]);
         setGameStarted(true);
         setGame((prevGame) => ({ ...prevGame, ...data[0] }));
 
@@ -290,7 +290,7 @@ const Game: React.FC = () => {
 
       if (error) throw error;
 
-      console.log("New round started:", data);
+      //console.log("New round started:", data);
 
       // Update the game state in the database
       const { error: updateError } = await supabase
@@ -322,7 +322,7 @@ const Game: React.FC = () => {
 
         if (error) throw error;
 
-        console.log("Leave room result:", data);
+        //console.log("Leave room result:", data);
         localStorage.removeItem("username");
         localStorage.removeItem("userId");
         navigate("/");
@@ -384,8 +384,8 @@ const Game: React.FC = () => {
             onUpdateGame={(updatedGame) => {
               setGame((prevGame) => {
                 const newGame = { ...prevGame, ...updatedGame };
-                console.log("Game settings updated:", newGame);
-                console.log("New time limit:", newGame.time_limit);
+                //console.log("Game settings updated:", newGame);
+                //console.log("New time limit:", newGame.time_limit);
                 return newGame;
               });
             }}

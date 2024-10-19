@@ -39,13 +39,14 @@ const GamePlay: React.FC<GamePlayProps> = ({
       if (error) throw error;
 
       if (data) {
-        console.log("Fetched game state:", data);
+        //console.log("Fetched game state:", data);
         setCurrentItem(data.current_item);
+        console.log("Correct answer for testing:", data.current_item.answer);
         const adjustedStartTime = new Date(data.round_start_time);
         adjustedStartTime.setSeconds(adjustedStartTime.getSeconds() - TIME_OFFSET);
         setRoundStartTime(adjustedStartTime.toISOString());
-        console.log("Adjusted round start time:", adjustedStartTime.toISOString());
-        console.log("Fetched time limit:", data.time_limit);
+        //console.log("Adjusted round start time:", adjustedStartTime.toISOString());
+        //console.log("Fetched time limit:", data.time_limit);
         setIsRoundEnding(false);
       }
     } catch (error) {
@@ -82,7 +83,7 @@ const GamePlay: React.FC<GamePlayProps> = ({
         if (remainingSeconds > 0) {
           timer = setTimeout(updateTimer, 1000);
         } else if (!isRoundEnding) {
-          console.log("Timer reached zero, starting new round");
+          //console.log("Timer reached zero, starting new round");
           setIsRoundEnding(true);
           if (isLongestStandingPlayer) {
             onRoundEnd();
@@ -113,40 +114,67 @@ const GamePlay: React.FC<GamePlayProps> = ({
   };
 
   const handleGameStateChange = (payload: any) => {
-    console.log("Game state change:", payload);
+    //console.log("Game state change:", payload);
     if (payload.new) {
       setCurrentItem(payload.new.current_item);
+      console.log("Correct answer for testing:", payload.new.current_item.answer);
       const adjustedStartTime = new Date(payload.new.round_start_time);
       adjustedStartTime.setSeconds(adjustedStartTime.getSeconds() - TIME_OFFSET);
       setRoundStartTime(adjustedStartTime.toISOString());
-      console.log("Adjusted new round start time:", adjustedStartTime.toISOString());
+      //console.log("Adjusted new round start time:", adjustedStartTime.toISOString());
       setUserGuess("");
       setIsRoundEnding(false);
+    }
+  };
+
+  const isCorrectAnswer = (userGuess: string, correctAnswer: string | string[]): boolean => {
+    const normalizedUserGuess = userGuess.toLowerCase().trim();
+    
+    if (Array.isArray(correctAnswer)) {
+      return correctAnswer.some(answer => 
+        normalizedUserGuess === answer.toLowerCase().trim() ||
+        answer.toLowerCase().trim().includes(normalizedUserGuess) ||
+        normalizedUserGuess.includes(answer.toLowerCase().trim())
+      );
+    } else {
+      const normalizedCorrectAnswer = correctAnswer.toLowerCase().trim();
+      return normalizedUserGuess === normalizedCorrectAnswer ||
+             normalizedCorrectAnswer.includes(normalizedUserGuess) ||
+             normalizedUserGuess.includes(normalizedCorrectAnswer);
     }
   };
 
   const submitGuess = async () => {
     if (!currentItem || !userGuess.trim()) return;
 
-    const isCorrect =
-      userGuess.toLowerCase() === currentItem.answer.toLowerCase();
-    const currentPlayer = players.find(
-      (p) => p.id.toString() === currentUserId
-    );
+    console.log("Current item answer:", currentItem.answer);
+    console.log("User guess:", userGuess);
 
-    if (!currentPlayer) {
-      console.error("Current player not found:", currentUserId, players);
-      setError("Failed to submit guess. Player not found.");
-      return;
-    }
+    const isCorrect = isCorrectAnswer(userGuess, currentItem.answer);
 
     try {
+      // First, get the game_player_id
+      const { data: gamePlayerData, error: gamePlayerError } = await supabase
+        .from("game_players")
+        .select("id")
+        .eq("user_id", currentUserId)
+        .eq("game_id", gameId)
+        .single();
+
+      if (gamePlayerError) throw gamePlayerError;
+
+      if (!gamePlayerData) {
+        throw new Error(`Game player not found for user ID: ${currentUserId} and game ID: ${gameId}`);
+      }
+
+      const gamePlayerId = gamePlayerData.id;
+
+      // Now submit the guess
       const { data, error } = await supabase
         .from("user_guesses")
         .insert({
           item_id: currentItem.id,
-          game_id: gameId,
-          game_player_id: currentPlayer.id,
+          game_player_id: gamePlayerId,
           guessed_answer: userGuess,
           correct: isCorrect,
         })
@@ -160,21 +188,23 @@ const GamePlay: React.FC<GamePlayProps> = ({
 
       if (isCorrect) {
         console.log("Correct guess!");
-        await updatePlayerScore(currentPlayer.id);
+        await updatePlayerScore(gamePlayerId);
+        if (isLongestStandingPlayer) {
+          await onRoundEnd();
+        }
       }
     } catch (error) {
       console.error("Error submitting guess:", error);
-      setError("Failed to submit guess. Please try again.");
+      setError(`Failed to submit guess. Please try again. Error: ${error.message}`);
     }
   };
 
-  const updatePlayerScore = async (playerId: number) => {
+  const updatePlayerScore = async (gamePlayerId: number) => {
     try {
-      const { data, error } = await supabase
-        .from("game_players")
-        .update({ score: supabase.rpc("increment", { x: 1 }) })
-        .eq("id", playerId)
-        .select();
+      const { data, error } = await supabase.rpc('increment_score', { 
+        player_id: gamePlayerId, 
+        increment: 10 
+      });
 
       if (error) throw error;
 
@@ -182,7 +212,7 @@ const GamePlay: React.FC<GamePlayProps> = ({
     } catch (error) {
       console.error("Error updating player score:", error);
       setError(
-        "Failed to update score. The game will continue, but scores may be inaccurate."
+        `Failed to update score. The game will continue, but scores may be inaccurate. Error: ${error.message}`
       );
     }
   };

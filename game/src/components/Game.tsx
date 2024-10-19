@@ -78,6 +78,28 @@ const Game: React.FC = () => {
     [updateLongestStandingPlayer]
   );
 
+  const fetchGameState = useCallback(async () => {
+    if (!game) return;
+    try {
+      const { data, error } = await supabase
+        .from("games")
+        .select("*")
+        .eq("id", game.id)
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        console.log("Fetched game state:", data);
+        setGame(data);
+        setGameStarted(data.state === "in_progress");
+      }
+    } catch (error) {
+      console.error("Error fetching game state:", error);
+      setError("Failed to load game state. Please try again.");
+    }
+  }, [game]);
+
   const fetchRoomGameAndPlayers = useCallback(async () => {
     if (!roomCode || !currentUserId) return;
 
@@ -120,6 +142,13 @@ const Game: React.FC = () => {
   useEffect(() => {
     fetchRoomGameAndPlayers();
   }, [fetchRoomGameAndPlayers]);
+
+  useEffect(() => {
+    if (game) {
+      fetchGameState();
+      fetchPlayers(game.id);
+    }
+  }, [game, fetchGameState, fetchPlayers]);
 
   useEffect(() => {
     if (!game || !room) return;
@@ -176,24 +205,8 @@ const Game: React.FC = () => {
   const handlePlayerChange = (payload: any) => {
     console.log("Player change:", payload);
 
-    if (payload.eventType === "INSERT") {
-      fetchPlayers(game!.id); // Re-fetch all players when a new player joins
-    } else if (payload.eventType === "DELETE") {
-      setPlayers((prevPlayers) => {
-        const updatedPlayers = prevPlayers.filter(
-          (player) => player.id !== payload.old.id
-        );
-        updateLongestStandingPlayer(
-          updatedPlayers.map((p) => ({
-            id: p.id,
-            user_id: parseInt(currentUserId || "0"),
-            score: p.score,
-            created_at: new Date().toISOString(),
-            users: { id: parseInt(currentUserId || "0"), username: p.username },
-          }))
-        );
-        return updatedPlayers;
-      });
+    if (payload.eventType === "INSERT" || payload.eventType === "DELETE") {
+      fetchPlayers(game!.id);
     } else if (payload.eventType === "UPDATE") {
       setPlayers((prevPlayers) =>
         prevPlayers.map((player) =>

@@ -63,6 +63,10 @@ const GamePlay: React.FC<GamePlayProps> = ({
   }, [fetchGameState]);
 
   useEffect(() => {
+    fetchGameState();
+  }, [gameSettings, fetchGameState]);
+
+  useEffect(() => {
     let timer: NodeJS.Timeout;
     const updateTimer = () => {
       if (roundStartTime && gameSettings.time_limit) {

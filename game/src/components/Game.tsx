@@ -12,7 +12,8 @@ const Game: React.FC = () => {
   const [game, setGame] = useState<GameType | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [error, setError] = useState<string>("");
-  const [isLongestStandingPlayer, setIsLongestStandingPlayer] = useState<boolean>(false);
+  const [isLongestStandingPlayer, setIsLongestStandingPlayer] =
+    useState<boolean>(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [gameStarted, setGameStarted] = useState<boolean>(false);
 
@@ -23,8 +24,59 @@ const Game: React.FC = () => {
       return;
     }
     setCurrentUserId(userId);
-    console.log("Current user ID set:", userId);
   }, []);
+
+  const updateLongestStandingPlayer = useCallback(
+    (playersData: GamePlayer[]) => {
+      if (playersData.length > 0 && currentUserId) {
+        const isLongest = playersData[0].user_id.toString() === currentUserId;
+        setIsLongestStandingPlayer(isLongest);
+        console.log("Is longest standing player:", isLongest);
+      }
+    },
+    [currentUserId]
+  );
+
+  const fetchPlayers = useCallback(
+    async (gameId: number) => {
+      try {
+        const { data: playersData, error: playersError } = await supabase
+          .from("game_players")
+          .select(
+            `
+          id,
+          user_id,
+          score,
+          created_at,
+          users (
+            id,
+            username
+          )
+        `
+          )
+          .eq("game_id", gameId)
+          .order("created_at", { ascending: true });
+
+        if (playersError) throw playersError;
+
+        console.log("Fetched players data:", playersData);
+        const sortedPlayers: Player[] = (
+          playersData as unknown as GamePlayer[]
+        ).map((player) => ({
+          id: player.id,
+          username: player.users.username,
+          score: player.score,
+        }));
+
+        setPlayers(sortedPlayers);
+        updateLongestStandingPlayer(playersData as unknown as GamePlayer[]);
+      } catch (error) {
+        console.error("Error fetching players:", error);
+        setError("Error fetching players. Please try refreshing the page.");
+      }
+    },
+    [updateLongestStandingPlayer]
+  );
 
   const fetchRoomGameAndPlayers = useCallback(async () => {
     if (!roomCode || !currentUserId) return;
@@ -56,62 +108,18 @@ const Game: React.FC = () => {
       console.log("Time limit from database:", roomData.games[0].time_limit);
       setRoom(roomData);
       setGame(roomData.games[0]);
-      setGameStarted(roomData.games[0].state === 'in_progress');
+      setGameStarted(roomData.games[0].state === "in_progress");
 
       await fetchPlayers(roomData.games[0].id);
     } catch (error) {
       console.error("Error fetching room data:", error);
       setError("Error fetching room data. Please try again.");
     }
-  }, [roomCode, currentUserId]);
+  }, [roomCode, currentUserId, fetchPlayers]);
 
   useEffect(() => {
     fetchRoomGameAndPlayers();
   }, [fetchRoomGameAndPlayers]);
-
-  const fetchPlayers = async (gameId: number) => {
-    try {
-      const { data: playersData, error: playersError } = await supabase
-        .from("game_players")
-        .select(
-          `
-          id,
-          user_id,
-          score,
-          created_at,
-          users (
-            id,
-            username
-          )
-        `
-        )
-        .eq("game_id", gameId)
-        .order('created_at', { ascending: true });
-
-      if (playersError) throw playersError;
-
-      console.log("Fetched players data:", playersData);
-      const sortedPlayers: Player[] = (playersData as unknown as GamePlayer[]).map((player) => ({
-        id: player.id,
-        username: player.users.username,
-        score: player.score,
-      }));
-
-      setPlayers(sortedPlayers);
-      updateLongestStandingPlayer(playersData as unknown as GamePlayer[]);
-    } catch (error) {
-      console.error("Error fetching players:", error);
-      setError("Error fetching players. Please try refreshing the page.");
-    }
-  };
-
-  const updateLongestStandingPlayer = (playersData: GamePlayer[]) => {
-    if (playersData.length > 0 && currentUserId) {
-      const isLongest = playersData[0].user_id.toString() === currentUserId;
-      setIsLongestStandingPlayer(isLongest);
-      console.log("Is longest standing player:", isLongest);
-    }
-  };
 
   useEffect(() => {
     if (!game || !room) return;
@@ -120,7 +128,12 @@ const Game: React.FC = () => {
       .channel(`public:game_players:game_id=eq.${game.id}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "game_players", filter: `game_id=eq.${game.id}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "game_players",
+          filter: `game_id=eq.${game.id}`,
+        },
         handlePlayerChange
       )
       .subscribe();
@@ -129,7 +142,12 @@ const Game: React.FC = () => {
       .channel(`public:games:id=eq.${game.id}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "games", filter: `id=eq.${game.id}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "games",
+          filter: `id=eq.${game.id}`,
+        },
         handleGameChange
       )
       .subscribe();
@@ -138,7 +156,12 @@ const Game: React.FC = () => {
       .channel(`public:rooms:id=eq.${room.id}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "rooms", filter: `id=eq.${room.id}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "rooms",
+          filter: `id=eq.${room.id}`,
+        },
         handleRoomChange
       )
       .subscribe();
@@ -154,41 +177,21 @@ const Game: React.FC = () => {
     console.log("Player change:", payload);
 
     if (payload.eventType === "INSERT") {
-      supabase
-        .from("users")
-        .select("id, username")
-        .eq("id", payload.new.user_id)
-        .single()
-        .then(({ data, error }) => {
-          if (!error && data) {
-            const newPlayer: Player = {
-              id: payload.new.id,
-              username: data.username,
-              score: payload.new.score,
-            };
-            setPlayers((prevPlayers) => {
-              const updatedPlayers = [...prevPlayers, newPlayer];
-              updateLongestStandingPlayer(updatedPlayers.map(p => ({
-                id: p.id,
-                user_id: parseInt(currentUserId || '0'),
-                score: p.score,
-                created_at: new Date().toISOString(),
-                users: { id: parseInt(currentUserId || '0'), username: p.username }
-              })));
-              return updatedPlayers;
-            });
-          }
-        });
+      fetchPlayers(game!.id); // Re-fetch all players when a new player joins
     } else if (payload.eventType === "DELETE") {
       setPlayers((prevPlayers) => {
-        const updatedPlayers = prevPlayers.filter((player) => player.id !== payload.old.id);
-        updateLongestStandingPlayer(updatedPlayers.map(p => ({
-          id: p.id,
-          user_id: parseInt(currentUserId || '0'),
-          score: p.score,
-          created_at: new Date().toISOString(),
-          users: { id: parseInt(currentUserId || '0'), username: p.username }
-        })));
+        const updatedPlayers = prevPlayers.filter(
+          (player) => player.id !== payload.old.id
+        );
+        updateLongestStandingPlayer(
+          updatedPlayers.map((p) => ({
+            id: p.id,
+            user_id: parseInt(currentUserId || "0"),
+            score: p.score,
+            created_at: new Date().toISOString(),
+            users: { id: parseInt(currentUserId || "0"), username: p.username },
+          }))
+        );
         return updatedPlayers;
       });
     } else if (payload.eventType === "UPDATE") {
@@ -204,89 +207,96 @@ const Game: React.FC = () => {
 
   const handleGameChange = (payload: any) => {
     console.log("Game change:", payload);
-    setGame(prevGame => {
-      const updatedGame = { ...prevGame, ...payload.new };
-      setGameStarted(updatedGame.state === 'in_progress');
-      console.log('Updated game state:', updatedGame);
-      console.log('New time limit:', updatedGame.time_limit);
-      return updatedGame;
-    });
+    if (payload.new) {
+      setGame((prevGame) => {
+        const updatedGame = { ...prevGame, ...payload.new };
+        setGameStarted(updatedGame.state === "in_progress");
+        console.log("Updated game state:", updatedGame);
+        return updatedGame;
+      });
+    }
   };
 
   const handleRoomChange = (payload: any) => {
     console.log("Room change:", payload);
-    setRoom(prevRoom => ({ ...prevRoom, ...payload.new }));
+    setRoom((prevRoom) => ({ ...prevRoom, ...payload.new }));
   };
 
   const startGame = async () => {
     if (!isLongestStandingPlayer) {
-      setError('Only the longest-standing player can start the game');
+      setError("Only the longest-standing player can start the game");
       return;
     }
 
     if (!game) {
-      setError('Game data is not available');
+      setError("Game data is not available");
       return;
     }
 
     if (!game.category_id) {
-      setError('Please select a category before starting the game');
+      setError("Please select a category before starting the game");
       return;
     }
 
-    console.log('Starting game with settings:', game);
+    console.log("Starting game with settings:", game);
 
     try {
       const { data, error } = await supabase
-        .from('games')
-        .update({ state: 'in_progress' })
-        .eq('id', game.id)
+        .from("games")
+        .update({ state: "in_progress" })
+        .eq("id", game.id)
         .select();
 
       if (error) throw error;
 
-      console.log('Game start response:', data);
+      console.log("Game start response:", data);
 
       if (data && data.length > 0) {
-        console.log('Game started successfully:', data[0]);
+        console.log("Game started successfully:", data[0]);
         setGameStarted(true);
-        setGame(prevGame => ({ ...prevGame, ...data[0] }));
-        
+        setGame((prevGame) => ({ ...prevGame, ...data[0] }));
+
         // Start the first round
         await startNextRound();
       } else {
-        throw new Error('No data returned when starting the game');
+        throw new Error("No data returned when starting the game");
       }
     } catch (error) {
-      console.error('Error starting game:', error);
-      setError('Failed to start game. Please try again.');
+      console.error("Error starting game:", error);
+      setError("Failed to start game. Please try again.");
     }
   };
 
-  const startNextRound = useCallback(async () => {
+  const startNextRound = async () => {
     if (!game) return;
 
     try {
-      const { data, error } = await supabase.rpc('start_new_round', { p_game_id: game.id });
-      
+      const { data, error } = await supabase.rpc("start_new_round", {
+        p_game_id: game.id,
+      });
+
       if (error) throw error;
 
-      console.log('New round started:', data);
-      
-      setGame(prevGame => {
-        const updatedGame = {
-          ...prevGame,
+      console.log("New round started:", data);
+
+      // Update the game state in the database
+      const { error: updateError } = await supabase
+        .from("games")
+        .update({
           current_item: data.item,
-          round_start_time: data.round_start_time
-        };
-        console.log('Updated game state after new round:', updatedGame);
-        return updatedGame;
-      });
+          round_start_time: data.round_start_time,
+          time_limit: data.time_limit,
+        })
+        .eq("id", game.id);
+
+      if (updateError) throw updateError;
+
+      // Local state update is now handled by the real-time subscription
     } catch (error) {
-      console.error('Error starting new round:', error);
-      setError('Failed to start new round. Please try again.');
+      console.error("Error starting new round:", error);
+      setError("Failed to start new round. Please try again.");
     }
-  }, [game]);
+  };
 
   const leaveRoom = async () => {
     const username = localStorage.getItem("username");
@@ -359,10 +369,10 @@ const Game: React.FC = () => {
             gameId={game.id}
             isLongestStandingPlayer={isLongestStandingPlayer}
             onUpdateGame={(updatedGame) => {
-              setGame(prevGame => {
+              setGame((prevGame) => {
                 const newGame = { ...prevGame, ...updatedGame };
-                console.log('Game settings updated:', newGame);
-                console.log('New time limit:', newGame.time_limit);
+                console.log("Game settings updated:", newGame);
+                console.log("New time limit:", newGame.time_limit);
                 return newGame;
               });
             }}
@@ -381,11 +391,9 @@ const Game: React.FC = () => {
           gameId={game.id}
           players={players}
           currentUserId={currentUserId}
-          gameSettings={{
-            ...game,
-            time_limit: game.time_limit === null ? 0 : game.time_limit
-          }}
-          startNextRound={startNextRound}
+          gameSettings={game}
+          onRoundEnd={startNextRound}
+          isLongestStandingPlayer={isLongestStandingPlayer}
         />
       )}
       <button

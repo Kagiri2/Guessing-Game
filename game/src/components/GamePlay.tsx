@@ -7,7 +7,8 @@ interface GamePlayProps {
   players: Player[];
   currentUserId: string;
   gameSettings: GameType;
-  startNextRound: () => Promise<void>;
+  onRoundEnd: () => Promise<void>;
+  isLongestStandingPlayer: boolean;
 }
 
 const GamePlay: React.FC<GamePlayProps> = ({
@@ -15,13 +16,17 @@ const GamePlay: React.FC<GamePlayProps> = ({
   players,
   currentUserId,
   gameSettings,
-  startNextRound,
+  onRoundEnd,
+  isLongestStandingPlayer,
 }) => {
   const [currentItem, setCurrentItem] = useState<Item | null>(null);
   const [userGuess, setUserGuess] = useState<string>("");
-  const [roundTimer, setRoundTimer] = useState<number>(gameSettings.time_limit);
+  const [roundTimer, setRoundTimer] = useState<number | null>(null);
   const [roundStartTime, setRoundStartTime] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
+  const [isRoundEnding, setIsRoundEnding] = useState<boolean>(false);
+
+  const TIME_OFFSET = 14400; // 14400 seconds offset
 
   const fetchGameState = useCallback(async () => {
     try {
@@ -36,14 +41,18 @@ const GamePlay: React.FC<GamePlayProps> = ({
       if (data) {
         console.log("Fetched game state:", data);
         setCurrentItem(data.current_item);
-        setRoundStartTime(data.round_start_time);
-        setRoundTimer(gameSettings.time_limit);
+        const adjustedStartTime = new Date(data.round_start_time);
+        adjustedStartTime.setSeconds(adjustedStartTime.getSeconds() - TIME_OFFSET);
+        setRoundStartTime(adjustedStartTime.toISOString());
+        console.log("Adjusted round start time:", adjustedStartTime.toISOString());
+        console.log("Fetched time limit:", data.time_limit);
+        setIsRoundEnding(false);
       }
     } catch (error) {
       console.error("Error fetching game state:", error);
       setError("Failed to load game state. Please try again.");
     }
-  }, [gameId, gameSettings.time_limit]);
+  }, [gameId]);
 
   useEffect(() => {
     fetchGameState();
@@ -60,31 +69,28 @@ const GamePlay: React.FC<GamePlayProps> = ({
         const now = new Date().getTime();
         const startTime = new Date(roundStartTime).getTime();
         const elapsedSeconds = Math.floor((now - startTime) / 1000);
-        
-        if (elapsedSeconds >= gameSettings.time_limit) {
-          console.log("Time's up, starting next round");
-          startNextRound();
-          return;
-        }
-
-        const remainingSeconds = gameSettings.time_limit - elapsedSeconds;
-        console.log("Calculating timer:", {
-          now,
-          startTime,
-          elapsedSeconds,
-          remainingSeconds,
-          timeLimit: gameSettings.time_limit
-        });
+        const remainingSeconds = Math.max(
+          0,
+          gameSettings.time_limit - elapsedSeconds
+        );
         setRoundTimer(remainingSeconds);
 
-        timer = setTimeout(updateTimer, 1000);
+        if (remainingSeconds > 0) {
+          timer = setTimeout(updateTimer, 1000);
+        } else if (!isRoundEnding) {
+          console.log("Timer reached zero, starting new round");
+          setIsRoundEnding(true);
+          if (isLongestStandingPlayer) {
+            onRoundEnd();
+          }
+        }
       }
     };
 
     updateTimer();
 
     return () => clearTimeout(timer);
-  }, [roundStartTime, gameSettings.time_limit, startNextRound]);
+  }, [roundStartTime, gameSettings.time_limit, onRoundEnd, isLongestStandingPlayer, isRoundEnding]);
 
   const setupRealTimeSubscriptions = () => {
     return supabase
@@ -106,9 +112,12 @@ const GamePlay: React.FC<GamePlayProps> = ({
     console.log("Game state change:", payload);
     if (payload.new) {
       setCurrentItem(payload.new.current_item);
-      setRoundStartTime(payload.new.round_start_time);
-      setRoundTimer(gameSettings.time_limit);
+      const adjustedStartTime = new Date(payload.new.round_start_time);
+      adjustedStartTime.setSeconds(adjustedStartTime.getSeconds() - TIME_OFFSET);
+      setRoundStartTime(adjustedStartTime.toISOString());
+      console.log("Adjusted new round start time:", adjustedStartTime.toISOString());
       setUserGuess("");
+      setIsRoundEnding(false);
     }
   };
 
@@ -197,11 +206,11 @@ const GamePlay: React.FC<GamePlayProps> = ({
         />
         <p className="mt-2 text-xl font-bold">{currentItem.question}</p>
       </div>
-      <div className="text-center">
-        <p>Time remaining: {Math.max(0, roundTimer)} seconds</p>
-        <p>Round start time: {new Date(roundStartTime || '').toLocaleString()}</p>
-        <p>Time limit: {gameSettings.time_limit} seconds</p>
-      </div>
+      {roundTimer !== null && (
+        <div className="text-center">
+          <p>Time remaining: {roundTimer} seconds</p>
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="flex space-x-2">
         <input
           type="text"

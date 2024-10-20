@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { GameType } from '../services/gameInterface';
 
@@ -22,6 +22,52 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
   const [questionCount, setQuestionCount] = useState<number | null>(null);
   const [error, setError] = useState<string>('');
 
+  const fetchGameSettings = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('games')
+      .select('*')
+      .eq('id', gameId)
+      .single();
+
+    if (error) {
+      console.error('Error fetching game settings:', error);
+      setError('Failed to load game settings');
+    } else if (data) {
+      setGameSettings(data);
+      setTargetScore(data.target_score);
+      setTimeLimit(data.time_limit);
+      setSelectedCategoryId(data.category_id);
+    }
+  }, [gameId]);
+
+  const fetchCategories = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('categories')
+      .select('*')
+      .order('name');
+
+    if (error) {
+      console.error('Error fetching categories:', error);
+      setError('Failed to load categories');
+    } else if (data) {
+      setCategories(data);
+    }
+  }, []);
+
+  const fetchQuestionCount = useCallback(async (categoryId: number) => {
+    const { count, error } = await supabase
+      .from('items')
+      .select('*', { count: 'exact', head: true })
+      .eq('category_id', categoryId);
+
+    if (error) {
+      console.error('Error fetching question count:', error);
+      setError('Failed to load question count');
+    } else {
+      setQuestionCount(count);
+    }
+  }, []);
+
   useEffect(() => {
     fetchGameSettings();
     fetchCategories();
@@ -38,7 +84,7 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
     return () => {
       supabase.removeChannel(gamesSubscription);
     };
-  }, [gameId]);
+  }, [gameId, fetchGameSettings, fetchCategories]);
 
   useEffect(() => {
     if (selectedCategoryId) {
@@ -46,53 +92,7 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
     } else {
       setQuestionCount(null);
     }
-  }, [selectedCategoryId]);
-
-  const fetchGameSettings = async () => {
-    const { data, error } = await supabase
-      .from('games')
-      .select('*')
-      .eq('id', gameId)
-      .single();
-
-    if (error) {
-      console.error('Error fetching game settings:', error);
-      setError('Failed to load game settings');
-    } else if (data) {
-      setGameSettings(data);
-      setTargetScore(data.target_score);
-      setTimeLimit(data.time_limit);
-      setSelectedCategoryId(data.category_id);
-    }
-  };
-
-  const fetchCategories = async () => {
-    const { data, error } = await supabase
-      .from('categories')
-      .select('*')
-      .order('name');
-
-    if (error) {
-      console.error('Error fetching categories:', error);
-      setError('Failed to load categories');
-    } else if (data) {
-      setCategories(data);
-    }
-  };
-
-  const fetchQuestionCount = async (categoryId: number) => {
-    const { count, error } = await supabase
-      .from('items')
-      .select('*', { count: 'exact', head: true })
-      .eq('category_id', categoryId);
-
-    if (error) {
-      console.error('Error fetching question count:', error);
-      setError('Failed to load question count');
-    } else {
-      setQuestionCount(count);
-    }
-  };
+  }, [selectedCategoryId, fetchQuestionCount]);
 
   const handleGameChange = (payload: any) => {
     console.log("Game settings change:", payload);
@@ -105,17 +105,11 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
     }
   };
 
-  const updateGameSettings = async () => {
+  const updateGameSettings = useCallback(async (updatedSettings: Partial<GameType>) => {
     if (!isLongestStandingPlayer) {
       setError('Only the longest-standing player can change game settings');
       return;
     }
-
-    const updatedSettings = {
-      target_score: targetScore,
-      time_limit: timeLimit === 0 ? null : timeLimit, 
-      category_id: selectedCategoryId
-    };
 
     const { data, error } = await supabase
       .from('games')
@@ -130,8 +124,23 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
       setError('');
       setGameSettings(data[0]);
       onUpdateGame(updatedSettings);
-      console.log('Updated game settings:', updatedSettings); // Add this log
+      console.log('Updated game settings:', updatedSettings);
     }
+  }, [gameId, isLongestStandingPlayer, onUpdateGame]);
+
+  const handleTargetScoreChange = (value: number) => {
+    setTargetScore(value);
+    updateGameSettings({ target_score: value });
+  };
+
+  const handleTimeLimitChange = (value: number | null) => {
+    setTimeLimit(value);
+    updateGameSettings({ time_limit: value === 0 ? null : value });
+  };
+
+  const handleCategoryChange = (value: number | null) => {
+    setSelectedCategoryId(value);
+    updateGameSettings({ category_id: value });
   };
 
   if (!gameSettings) {
@@ -148,7 +157,7 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
             id="targetScore"
             type="number"
             value={targetScore}
-            onChange={(e) => setTargetScore(Number(e.target.value))}
+            onChange={(e) => handleTargetScoreChange(Number(e.target.value))}
             className="w-full px-3 py-2 border border-gray-300 rounded-md"
             disabled={!isLongestStandingPlayer}
           />
@@ -159,7 +168,7 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
             id="timeLimit"
             type="number"
             value={timeLimit === null ? 0 : timeLimit}
-            onChange={(e) => setTimeLimit(Number(e.target.value) || null)}
+            onChange={(e) => handleTimeLimitChange(Number(e.target.value) || null)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md"
             disabled={!isLongestStandingPlayer}
           />
@@ -169,7 +178,7 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
           <select
             id="category"
             value={selectedCategoryId || ''}
-            onChange={(e) => setSelectedCategoryId(Number(e.target.value) || null)}
+            onChange={(e) => handleCategoryChange(Number(e.target.value) || null)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md"
             disabled={!isLongestStandingPlayer}
           >
@@ -186,14 +195,6 @@ const GameSettings: React.FC<GameSettingsProps> = ({ gameId, isLongestStandingPl
             </p>
           )}
         </div>
-        {isLongestStandingPlayer && (
-          <button
-            onClick={updateGameSettings}
-            className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded"
-          >
-            Update Settings
-          </button>
-        )}
         {error && <p className="text-red-500 text-sm">{error}</p>}
       </div>
       <div className="mt-4">

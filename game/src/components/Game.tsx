@@ -16,6 +16,7 @@ const Game: React.FC = () => {
     useState<boolean>(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [gameStarted, setGameStarted] = useState<boolean>(false);
+  const [gameWinner, setGameWinner] = useState<Player | null>(null);
 
   useEffect(() => {
     const userId = localStorage.getItem("userId");
@@ -31,7 +32,6 @@ const Game: React.FC = () => {
       if (playersData.length > 0 && currentUserId) {
         const isLongest = playersData[0].user_id.toString() === currentUserId;
         setIsLongestStandingPlayer(isLongest);
-        //console.log("Is longest standing player:", isLongest);
       }
     },
     [currentUserId]
@@ -44,22 +44,21 @@ const Game: React.FC = () => {
           .from("game_players")
           .select(
             `
-          id,
-          user_id,
-          score,
-          created_at,
-          users (
             id,
-            username
-          )
-        `
+            user_id,
+            score,
+            created_at,
+            users (
+              id,
+              username
+            )
+          `
           )
           .eq("game_id", gameId)
           .order("created_at", { ascending: true });
 
         if (playersError) throw playersError;
 
-        //console.log("Fetched players data:", playersData);
         const sortedPlayers: Player[] = (
           playersData as unknown as GamePlayer[]
         ).map((player) => ({
@@ -90,7 +89,6 @@ const Game: React.FC = () => {
       if (error) throw error;
 
       if (data) {
-        //console.log("Fetched game state:", data);
         setGame(data);
         setGameStarted(data.state === "in_progress");
       }
@@ -126,8 +124,6 @@ const Game: React.FC = () => {
 
       if (roomError) throw roomError;
 
-      //console.log("Fetched room data:", roomData);
-      //console.log("Time limit from database:", roomData.games[0].time_limit);
       setRoom(roomData);
       setGame(roomData.games[0]);
       setGameStarted(roomData.games[0].state === "in_progress");
@@ -203,8 +199,6 @@ const Game: React.FC = () => {
   }, [game, room]);
 
   const handlePlayerChange = (payload: any) => {
-    //console.log("Player change:", payload);
-
     if (payload.eventType === "INSERT" || payload.eventType === "DELETE") {
       fetchPlayers(game!.id);
     } else if (payload.eventType === "UPDATE") {
@@ -219,19 +213,24 @@ const Game: React.FC = () => {
   };
 
   const handleGameChange = (payload: any) => {
-    //console.log("Game change:", payload);
     if (payload.new) {
       setGame((prevGame) => {
         const updatedGame = { ...prevGame, ...payload.new };
         setGameStarted(updatedGame.state === "in_progress");
-        //console.log("Updated game state:", updatedGame);
+        if (updatedGame.state === "finished" && updatedGame.winner) {
+          const winningPlayer = players.find(
+            (p) => p.id === updatedGame.winner
+          );
+          if (winningPlayer) {
+            setGameWinner(winningPlayer);
+          }
+        }
         return updatedGame;
       });
     }
   };
 
   const handleRoomChange = (payload: any) => {
-    //console.log("Room change:", payload);
     setRoom((prevRoom) => ({ ...prevRoom, ...payload.new }));
   };
 
@@ -251,8 +250,6 @@ const Game: React.FC = () => {
       return;
     }
 
-    //console.log("Starting game with settings:", game);
-
     try {
       const { data, error } = await supabase
         .from("games")
@@ -262,10 +259,7 @@ const Game: React.FC = () => {
 
       if (error) throw error;
 
-      //console.log("Game start response:", data);
-
       if (data && data.length > 0) {
-        //console.log("Game started successfully:", data[0]);
         setGameStarted(true);
         setGame((prevGame) => ({ ...prevGame, ...data[0] }));
 
@@ -290,9 +284,6 @@ const Game: React.FC = () => {
 
       if (error) throw error;
 
-      //console.log("New round started:", data);
-
-      // Update the game state in the database
       const { error: updateError } = await supabase
         .from("games")
         .update({
@@ -303,11 +294,70 @@ const Game: React.FC = () => {
         .eq("id", game.id);
 
       if (updateError) throw updateError;
-
-      // Local state update is now handled by the real-time subscription
     } catch (error) {
       console.error("Error starting new round:", error);
       setError("Failed to start new round. Please try again.");
+    }
+  };
+
+  const handlePlayerWin = async (winner: Player) => {
+    try {
+      const { error } = await supabase
+        .from("games")
+        .update({ state: "finished", winner: winner.id })
+        .eq("id", game!.id);
+
+      if (error) throw error;
+
+      console.log("Game marked as finished");
+    } catch (error) {
+      console.error("Error updating game state:", error);
+      setError("Failed to update game state. Please refresh the page.");
+    }
+  };
+
+  const startNewGame = async () => {
+    if (!isLongestStandingPlayer) {
+      setError("Only the longest-standing player can start a new game");
+      return;
+    }
+
+    try {
+      // Reset game state
+      const { data, error } = await supabase
+        .from("games")
+        .update({
+          state: "waiting",
+          current_item: null,
+          round_start_time: null,
+          category_id: null,
+          target_score: null,
+          time_limit: null,
+        })
+        .eq("id", game!.id)
+        .select();
+
+      if (error) throw error;
+
+      // Reset player scores
+      const { error: resetScoreError } = await supabase
+        .from("game_players")
+        .update({ score: 0 })
+        .eq("game_id", game!.id);
+
+      if (resetScoreError) throw resetScoreError;
+
+      if (data && data.length > 0) {
+        setGame((prevGame) => ({ ...prevGame, ...data[0] }));
+        setGameWinner(null);
+        setGameStarted(false);
+        await fetchPlayers(game!.id);
+      } else {
+        throw new Error("No data returned when resetting the game");
+      }
+    } catch (error) {
+      console.error("Error starting new game:", error);
+      setError("Failed to start a new game. Please try again.");
     }
   };
 
@@ -322,7 +372,6 @@ const Game: React.FC = () => {
 
         if (error) throw error;
 
-        //console.log("Leave room result:", data);
         localStorage.removeItem("username");
         localStorage.removeItem("userId");
         navigate("/");
@@ -376,18 +425,43 @@ const Game: React.FC = () => {
           ))}
         </ul>
       </div>
-      {!gameStarted ? (
+      {gameWinner ? (
+        <div className="text-center">
+          <h3 className="text-2xl font-bold mb-4">Game Over!</h3>
+          <p className="text-xl mb-4">
+            {gameWinner.username} has won the game with {gameWinner.score}{" "}
+            points!
+          </p>
+          <div className="mt-4">
+            <h4 className="text-lg font-semibold mb-2">Final Scores:</h4>
+            <ul>
+              {players.map((player) => (
+                <li
+                  key={player.id}
+                  className="flex justify-between items-center py-1"
+                >
+                  <span>{player.username}</span>
+                  <span className="font-bold">{player.score} points</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          {isLongestStandingPlayer && (
+            <button
+              onClick={startNewGame}
+              className="mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded"
+            >
+              Start New Game
+            </button>
+          )}
+        </div>
+      ) : !gameStarted ? (
         <>
           <GameSettings
             gameId={game.id}
             isLongestStandingPlayer={isLongestStandingPlayer}
             onUpdateGame={(updatedGame) => {
-              setGame((prevGame) => {
-                const newGame = { ...prevGame, ...updatedGame };
-                //console.log("Game settings updated:", newGame);
-                //console.log("New time limit:", newGame.time_limit);
-                return newGame;
-              });
+              setGame((prevGame) => ({ ...prevGame, ...updatedGame }));
             }}
           />
           {isLongestStandingPlayer && (
@@ -407,6 +481,7 @@ const Game: React.FC = () => {
           gameSettings={game}
           onRoundEnd={startNextRound}
           isLongestStandingPlayer={isLongestStandingPlayer}
+          onPlayerWin={handlePlayerWin}
         />
       )}
       <button

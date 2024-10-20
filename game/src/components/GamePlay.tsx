@@ -9,6 +9,7 @@ interface GamePlayProps {
   gameSettings: GameType;
   onRoundEnd: () => Promise<void>;
   isLongestStandingPlayer: boolean;
+  onPlayerWin: (winner: Player) => void;
 }
 
 const GamePlay: React.FC<GamePlayProps> = ({
@@ -18,6 +19,7 @@ const GamePlay: React.FC<GamePlayProps> = ({
   gameSettings,
   onRoundEnd,
   isLongestStandingPlayer,
+  onPlayerWin,
 }) => {
   const [currentItem, setCurrentItem] = useState<Item | null>(null);
   const [userGuess, setUserGuess] = useState<string>("");
@@ -39,14 +41,11 @@ const GamePlay: React.FC<GamePlayProps> = ({
       if (error) throw error;
 
       if (data) {
-        //console.log("Fetched game state:", data);
         setCurrentItem(data.current_item);
         console.log("Correct answer for testing:", data.current_item.answer);
         const adjustedStartTime = new Date(data.round_start_time);
         adjustedStartTime.setSeconds(adjustedStartTime.getSeconds() - TIME_OFFSET);
         setRoundStartTime(adjustedStartTime.toISOString());
-        //console.log("Adjusted round start time:", adjustedStartTime.toISOString());
-        //console.log("Fetched time limit:", data.time_limit);
         setIsRoundEnding(false);
       }
     } catch (error) {
@@ -83,7 +82,6 @@ const GamePlay: React.FC<GamePlayProps> = ({
         if (remainingSeconds > 0) {
           timer = setTimeout(updateTimer, 1000);
         } else if (!isRoundEnding) {
-          //console.log("Timer reached zero, starting new round");
           setIsRoundEnding(true);
           if (isLongestStandingPlayer) {
             onRoundEnd();
@@ -114,14 +112,12 @@ const GamePlay: React.FC<GamePlayProps> = ({
   };
 
   const handleGameStateChange = (payload: any) => {
-    //console.log("Game state change:", payload);
     if (payload.new) {
       setCurrentItem(payload.new.current_item);
       console.log("Correct answer for testing:", payload.new.current_item.answer);
       const adjustedStartTime = new Date(payload.new.round_start_time);
       adjustedStartTime.setSeconds(adjustedStartTime.getSeconds() - TIME_OFFSET);
       setRoundStartTime(adjustedStartTime.toISOString());
-      //console.log("Adjusted new round start time:", adjustedStartTime.toISOString());
       setUserGuess("");
       setIsRoundEnding(false);
     }
@@ -153,7 +149,6 @@ const GamePlay: React.FC<GamePlayProps> = ({
     const isCorrect = isCorrectAnswer(userGuess, currentItem.answer);
 
     try {
-      // First, get the game_player_id
       const { data: gamePlayerData, error: gamePlayerError } = await supabase
         .from("game_players")
         .select("id")
@@ -169,7 +164,6 @@ const GamePlay: React.FC<GamePlayProps> = ({
 
       const gamePlayerId = gamePlayerData.id;
 
-      // Now submit the guess
       const { data, error } = await supabase
         .from("user_guesses")
         .insert({
@@ -209,6 +203,13 @@ const GamePlay: React.FC<GamePlayProps> = ({
       if (error) throw error;
 
       console.log("Player score updated:", data);
+
+      // Check if the player has reached the target score
+      const updatedPlayer = players.find(p => p.id === gamePlayerId);
+      if (updatedPlayer && updatedPlayer.score + 10 >= gameSettings.target_score) {
+        console.log("Game won by:", updatedPlayer);
+        onPlayerWin(updatedPlayer);
+      }
     } catch (error) {
       console.error("Error updating player score:", error);
       setError(
@@ -261,6 +262,17 @@ const GamePlay: React.FC<GamePlayProps> = ({
         </button>
       </form>
       {error && <p className="text-red-500 text-sm">{error}</p>}
+      <div className="mt-4">
+        <h3 className="text-xl font-semibold mb-2">Current Scores:</h3>
+        <ul>
+          {players.map((player) => (
+            <li key={player.id} className="flex justify-between items-center py-1">
+              <span>{player.username}</span>
+              <span className="font-bold">{player.score} / {gameSettings.target_score}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 };

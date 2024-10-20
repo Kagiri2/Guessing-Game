@@ -12,8 +12,7 @@ const Game: React.FC = () => {
   const [game, setGame] = useState<GameType | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [error, setError] = useState<string>("");
-  const [isLongestStandingPlayer, setIsLongestStandingPlayer] =
-    useState<boolean>(false);
+  const [isLongestStandingPlayer, setIsLongestStandingPlayer] = useState<boolean>(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [gameStarted, setGameStarted] = useState<boolean>(false);
   const [gameWinner, setGameWinner] = useState<Player | null>(null);
@@ -310,6 +309,7 @@ const Game: React.FC = () => {
       if (error) throw error;
 
       console.log("Game marked as finished");
+      setGameWinner(winner);
     } catch (error) {
       console.error("Error updating game state:", error);
       setError("Failed to update game state. Please refresh the page.");
@@ -333,6 +333,7 @@ const Game: React.FC = () => {
           category_id: null,
           target_score: null,
           time_limit: null,
+          winner: null,
         })
         .eq("id", game!.id)
         .select();
@@ -395,45 +396,25 @@ const Game: React.FC = () => {
     };
   }, []);
 
-  if (error) {
-    return <div className="text-red-500">{error}</div>;
-  }
-
-  if (!room || !game || !currentUserId) {
-    return <div>Loading...</div>;
-  }
-
   return (
     <div className="p-4 bg-white rounded shadow-md w-full max-w-lg mx-auto">
       <h2 className="text-2xl font-bold mb-4">Room: {roomCode}</h2>
-      <div className="mb-4">
-        <h3 className="text-xl font-semibold mb-2">
-          Game Status: {game.state}
-        </h3>
-      </div>
-      <div className="mb-4">
-        <h3 className="text-xl font-semibold mb-2">Players:</h3>
-        <ul>
-          {players.map((player) => (
-            <li
-              key={player.id}
-              className="flex justify-between items-center py-1"
-            >
-              <span>{player.username}</span>
-              <span className="font-bold">{player.score} points</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-      {gameWinner ? (
-        <div className="text-center">
-          <h3 className="text-2xl font-bold mb-4">Game Over!</h3>
-          <p className="text-xl mb-4">
-            {gameWinner.username} has won the game with {gameWinner.score}{" "}
-            points!
-          </p>
-          <div className="mt-4">
-            <h4 className="text-lg font-semibold mb-2">Final Scores:</h4>
+      {error && (
+        <div className="mb-4 p-2 bg-red-100 border border-red-400 text-red-700 rounded">
+          Error: {error}
+        </div>
+      )}
+      {(!room || !game || !currentUserId) ? (
+        <div>Loading...</div>
+      ) : (
+        <>
+          <div className="mb-4">
+            <h3 className="text-xl font-semibold mb-2">
+              Game Status: {game.state}
+            </h3>
+          </div>
+          <div className="mb-4">
+            <h3 className="text-xl font-semibold mb-2">Players:</h3>
             <ul>
               {players.map((player) => (
                 <li
@@ -446,50 +427,72 @@ const Game: React.FC = () => {
               ))}
             </ul>
           </div>
-          {isLongestStandingPlayer && (
-            <button
-              onClick={startNewGame}
-              className="mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded"
-            >
-              Start New Game
-            </button>
+          {gameWinner ? (
+            <div className="text-center">
+              <h3 className="text-2xl font-bold mb-4">Game Over!</h3>
+              <p className="text-xl mb-4">
+                {gameWinner.username} has won the game with {gameWinner.score} points!
+              </p>
+              <div className="mt-4">
+                <h4 className="text-lg font-semibold mb-2">Final Scores:</h4>
+                <ul>
+                  {players.map((player) => (
+                    <li
+                      key={player.id}
+                      className="flex justify-between items-center py-1"
+                    >
+                      <span>{player.username}</span>
+                      <span className="font-bold">{player.score} points</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {isLongestStandingPlayer && (
+                <button
+                  onClick={startNewGame}
+                  className="mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded"
+                >
+                  Start New Game
+                </button>
+              )}
+            </div>
+          ) : !gameStarted ? (
+            <>
+              <GameSettings
+                gameId={game.id}
+                isLongestStandingPlayer={isLongestStandingPlayer}
+                onUpdateGame={(updatedGame) => {
+                  setGame((prevGame) => ({ ...prevGame, ...updatedGame }));
+                }}
+              />
+              {isLongestStandingPlayer && (
+                <button
+                  onClick={startGame}
+                  className="mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded"
+                >
+                  Start Game
+                </button>
+              )}
+            </>
+          ) : (
+            <GamePlay
+              gameId={game.id}
+              players={players}
+              currentUserId={currentUserId}
+              gameSettings={game}
+              onRoundEnd={startNextRound}
+              isLongestStandingPlayer={isLongestStandingPlayer}
+              onPlayerWin={handlePlayerWin}
+            />
           )}
-        </div>
-      ) : !gameStarted ? (
-        <>
-          <GameSettings
-            gameId={game.id}
-            isLongestStandingPlayer={isLongestStandingPlayer}
-            onUpdateGame={(updatedGame) => {
-              setGame((prevGame) => ({ ...prevGame, ...updatedGame }));
-            }}
-          />
-          {isLongestStandingPlayer && (
-            <button
-              onClick={startGame}
-              className="mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded"
-            >
-              Start Game
-            </button>
-          )}
+          <button
+            onClick={leaveRoom}
+            className="mt-4 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded"
+          >
+            Leave Room
+          </button>
         </>
-      ) : (
-        <GamePlay
-          gameId={game.id}
-          players={players}
-          currentUserId={currentUserId}
-          gameSettings={game}
-          onRoundEnd={startNextRound}
-          isLongestStandingPlayer={isLongestStandingPlayer}
-          onPlayerWin={handlePlayerWin}
-        />
       )}
-      <button
-        onClick={leaveRoom}
-        className="mt-4 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded"
-      >
-        Leave Room
-      </button>
     </div>
   );
 };

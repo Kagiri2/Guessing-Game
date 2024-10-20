@@ -1,5 +1,6 @@
 # Guessing-Game
 
-Web app guessing game made with React, Socket.IO, Supabase
-frontend: npm start
-backend: ./gradlew bootRun
+Web app guessing game made with React and Supabase
+run with npm run dev
+
+Inspired by jklm.fun pop sauce

@@ -2,6 +2,10 @@ import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../services/supabaseClient";
 import { Player, GameType, Item } from "../services/gameInterface";
 
+interface PlayerWithGuess extends Player {
+  lastIncorrectGuess?: string;
+}
+
 interface GamePlayProps {
   gameId: number;
   players: Player[];
@@ -27,6 +31,7 @@ const GamePlay: React.FC<GamePlayProps> = ({
   const [roundStartTime, setRoundStartTime] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
   const [isRoundEnding, setIsRoundEnding] = useState<boolean>(false);
+  const [playersWithGuesses, setPlayersWithGuesses] = useState<PlayerWithGuess[]>([]);
 
   const TIME_OFFSET = 14400; // 14400 seconds offset
 
@@ -54,13 +59,49 @@ const GamePlay: React.FC<GamePlayProps> = ({
     }
   }, [gameId]);
 
+  const fetchLastIncorrectGuesses = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('user_guesses')
+        .select(`
+          id,
+          game_player_id,
+          guessed_answer,
+          correct,
+          created_at,
+          game_players!inner(game_id)
+        `)
+        .eq('game_players.game_id', gameId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const lastIncorrectGuesses: { [key: number]: string } = {};
+      data.forEach((guess) => {
+        if (!guess.correct && !lastIncorrectGuesses[guess.game_player_id]) {
+          lastIncorrectGuesses[guess.game_player_id] = guess.guessed_answer;
+        }
+      });
+
+      setPlayersWithGuesses(players.map(player => ({
+        ...player,
+        lastIncorrectGuess: lastIncorrectGuesses[player.id] || ''
+      })));
+
+    } catch (error) {
+      console.error("Error fetching last incorrect guesses:", error);
+      setError("Failed to load player guesses. Please try again.");
+    }
+  }, [gameId, players]);
+
   useEffect(() => {
     fetchGameState();
+    fetchLastIncorrectGuesses();
     const gameStateSubscription = setupRealTimeSubscriptions();
     return () => {
       supabase.removeChannel(gameStateSubscription);
     };
-  }, [fetchGameState]);
+  }, [fetchGameState, fetchLastIncorrectGuesses]);
 
   useEffect(() => {
     fetchGameState();
@@ -187,6 +228,9 @@ const GamePlay: React.FC<GamePlayProps> = ({
           await onRoundEnd();
         }
       }
+
+      // Fetch updated guesses after submitting
+      await fetchLastIncorrectGuesses();
     } catch (error) {
       console.error("Error submitting guess:", error);
       setError(`Failed to submit guess. Please try again. Error: ${error.message}`);
@@ -263,12 +307,17 @@ const GamePlay: React.FC<GamePlayProps> = ({
       </form>
       {error && <p className="text-red-500 text-sm">{error}</p>}
       <div className="mt-4">
-        <h3 className="text-xl font-semibold mb-2">Current Scores:</h3>
+        <h3 className="text-xl font-semibold mb-2">Current Scores and Last Incorrect Guesses:</h3>
         <ul>
-          {players.map((player) => (
+          {playersWithGuesses.map((player) => (
             <li key={player.id} className="flex justify-between items-center py-1">
               <span>{player.username}</span>
-              <span className="font-bold">{player.score} / {gameSettings.target_score}</span>
+              <span>
+                <span className="font-bold mr-2">{player.score} / {gameSettings.target_score}</span>
+                {player.lastIncorrectGuess && (
+                  <span className="text-red-500 text-sm">Last guess: {player.lastIncorrectGuess}</span>
+                )}
+              </span>
             </li>
           ))}
         </ul>

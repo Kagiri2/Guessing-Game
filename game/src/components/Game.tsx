@@ -323,16 +323,26 @@ const Game: React.FC = () => {
     }
 
     try {
-      // Reset game state
+      // Fetch current game settings before resetting
+      const { data: currentGameData, error: fetchError } = await supabase
+        .from("games")
+        .select("category_id, target_score, time_limit")
+        .eq("id", game!.id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Reset game state while preserving settings
       const { data, error } = await supabase
         .from("games")
         .update({
           state: "waiting",
           current_item: null,
           round_start_time: null,
-          category_id: null,
-          time_limit: null,
           winner: null,
+          category_id: currentGameData.category_id,
+          target_score: currentGameData.target_score,
+          time_limit: currentGameData.time_limit
         })
         .eq("id", game!.id)
         .select();
@@ -358,23 +368,6 @@ const Game: React.FC = () => {
     } catch (error) {
       console.error("Error starting new game:", error);
       setError("Failed to start a new game. Please try again.");
-    }
-  };
-
-  const endGame = async (winner: Player) => {
-    try {
-      const { error } = await supabase
-        .from("games")
-        .update({ state: "finished", winner: winner.id })
-        .eq("id", game!.id);
-
-      if (error) throw error;
-
-      setGameWinner(winner);
-      setGameStarted(false);
-    } catch (error) {
-      console.error("Error ending game:", error);
-      setError("Failed to end the game. Please try again.");
     }
   };
 
@@ -424,8 +417,9 @@ const Game: React.FC = () => {
             gameId={game.id}
             isLongestStandingPlayer={isLongestStandingPlayer}
             onUpdateGame={(updatedGame) => {
-              // Handle game update
+              setGame(prevGame => ({ ...prevGame, ...updatedGame }));
             }}
+            gameState={game.state}
           />
         )}
         {isLongestStandingPlayer && !gameWinner && !gameStarted && (
@@ -510,6 +504,14 @@ const Game: React.FC = () => {
             </ul>
           </div>
         )}
+
+        {/* Leave Room button */}
+        <button
+          onClick={leaveRoom}
+          className="mt-6 w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out"
+        >
+          Leave Room
+        </button>
       </aside>
     </div>
   );

@@ -10,7 +10,7 @@ const Home: React.FC = () => {
 
       {/* Main Content */}
       <main className="flex-grow flex items-center justify-center p-4 w-full">
-        <div className="bg-black bg-opacity-50 p-6 sm:p-8 rounded-lg shadow-xl w-full max-w-4xl transition-all duration-300 hover:bg-opacity-60">
+        <div className="bg-black bg-opacity-50 p-6 sm:p-8 rounded-lg shadow-xl w-full max-w-2xl transition-all duration-300 hover:bg-opacity-60">
           {username ? (
             <div className="space-y-6 text-center">
               <p className="text-2xl text-white font-bold">Welcome, {username}!</p>

@@ -224,9 +224,6 @@ const GamePlay: React.FC<GamePlayProps> = ({
       if (isCorrect) {
         //console.log("Correct guess!");
         await updatePlayerScore(gamePlayerId);
-        if (isLongestStandingPlayer) {
-          await onRoundEnd();
-        }
       }
 
       // Fetch updated guesses after submitting

@@ -13,41 +13,6 @@ export const useAnswerMatcher = () => {
       return str.toLowerCase().replace(/[^a-z0-9]/g, '');
     };
 
-    const calculateSimilarity = (str1: string, str2: string): number => {
-      const longer = str1.length > str2.length ? str1 : str2;
-      const shorter = str1.length > str2.length ? str2 : str1;
-      const longerLength = longer.length;
-      if (longerLength === 0) {
-        return 1.0;
-      }
-      return (longerLength - editDistance(longer, shorter)) / parseFloat(longerLength.toString());
-    };
-
-    const editDistance = (str1: string, str2: string): number => {
-      str1 = str1.toLowerCase();
-      str2 = str2.toLowerCase();
-      const costs = [];
-      for (let i = 0; i <= str1.length; i++) {
-        let lastValue = i;
-        for (let j = 0; j <= str2.length; j++) {
-          if (i === 0) {
-            costs[j] = j;
-          } else if (j > 0) {
-            let newValue = costs[j - 1];
-            if (str1.charAt(i - 1) !== str2.charAt(j - 1)) {
-              newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
-            }
-            costs[j - 1] = lastValue;
-            lastValue = newValue;
-          }
-        }
-        if (i > 0) {
-          costs[str2.length] = lastValue;
-        }
-      }
-      return costs[str2.length];
-    };
-
     const checkAbbreviation = (guess: string, answer: string): boolean => {
       const guessChars = guess.split('');
       let answerIndex = 0;
@@ -59,22 +24,38 @@ export const useAnswerMatcher = () => {
       return true;
     };
 
+    const checkPartialMatch = (guess: string, answer: string): boolean => {
+      const answerWords = answer.split(' ');
+      return answerWords.some(word => normalizeString(word) === normalizeString(guess));
+    };
+
     const normalizedGuess = normalizeString(userGuess);
     
     let isCorrect = false;
-    let bestMatchQuality = 0;
+    let matchQuality = 0;
 
     const checkSingleAnswer = (answer: string) => {
       const normalizedAnswer = normalizeString(answer);
-      const similarity = calculateSimilarity(normalizedGuess, normalizedAnswer);
-      const isAbbreviation = checkAbbreviation(normalizedGuess, normalizedAnswer);
       
-      if (similarity > bestMatchQuality) {
-        bestMatchQuality = similarity;
-      }
-
-      if (similarity > 0.8 || isAbbreviation) {
+      // Check for exact match
+      if (normalizedGuess === normalizedAnswer) {
         isCorrect = true;
+        matchQuality = 1;
+        return;
+      }
+      
+      // Check for abbreviation
+      if (checkAbbreviation(normalizedGuess, normalizedAnswer)) {
+        isCorrect = true;
+        matchQuality = 0.9;
+        return;
+      }
+      
+      // Check for partial match in multi-word answers
+      if (answer.includes(' ') && checkPartialMatch(normalizedGuess, answer)) {
+        isCorrect = true;
+        matchQuality = 0.8;
+        return;
       }
     };
 
@@ -84,7 +65,7 @@ export const useAnswerMatcher = () => {
       checkSingleAnswer(correctAnswer);
     }
 
-    setMatchResult({ isCorrect, matchQuality: bestMatchQuality });
+    setMatchResult({ isCorrect, matchQuality });
   }, []);
 
   return { matchResult, checkAnswer };

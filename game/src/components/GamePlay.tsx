@@ -47,7 +47,7 @@ const GamePlay: React.FC<GamePlayProps> = ({
 
       if (data) {
         setCurrentItem(data.current_item);
-        console.log("Correct answer for testing:", data.current_item.answer);
+        //console.log("Correct answer for testing:", data.current_item.answer);
         const adjustedStartTime = new Date(data.round_start_time);
         adjustedStartTime.setSeconds(adjustedStartTime.getSeconds() - TIME_OFFSET);
         setRoundStartTime(adjustedStartTime.toISOString());
@@ -155,7 +155,7 @@ const GamePlay: React.FC<GamePlayProps> = ({
   const handleGameStateChange = (payload: any) => {
     if (payload.new) {
       setCurrentItem(payload.new.current_item);
-      console.log("Correct answer for testing:", payload.new.current_item.answer);
+      //console.log("Correct answer for testing:", payload.new.current_item.answer);
       const adjustedStartTime = new Date(payload.new.round_start_time);
       adjustedStartTime.setSeconds(adjustedStartTime.getSeconds() - TIME_OFFSET);
       setRoundStartTime(adjustedStartTime.toISOString());
@@ -184,8 +184,8 @@ const GamePlay: React.FC<GamePlayProps> = ({
   const submitGuess = async () => {
     if (!currentItem || !userGuess.trim()) return;
 
-    console.log("Current item answer:", currentItem.answer);
-    console.log("User guess:", userGuess);
+    //console.log("Current item answer:", currentItem.answer);
+    //console.log("User guess:", userGuess);
 
     const isCorrect = isCorrectAnswer(userGuess, currentItem.answer);
 
@@ -218,11 +218,11 @@ const GamePlay: React.FC<GamePlayProps> = ({
 
       if (error) throw error;
 
-      console.log("Guess submitted:", data);
+      //console.log("Guess submitted:", data);
       setUserGuess("");
 
       if (isCorrect) {
-        console.log("Correct guess!");
+        //console.log("Correct guess!");
         await updatePlayerScore(gamePlayerId);
         if (isLongestStandingPlayer) {
           await onRoundEnd();
@@ -246,12 +246,12 @@ const GamePlay: React.FC<GamePlayProps> = ({
 
       if (error) throw error;
 
-      console.log("Player score updated:", data);
+      //console.log("Player score updated:", data);
 
       // Check if the player has reached the target score
       const updatedPlayer = players.find(p => p.id === gamePlayerId);
       if (updatedPlayer && updatedPlayer.score + 10 >= gameSettings.target_score) {
-        console.log("Game won by:", updatedPlayer);
+        //console.log("Game won by:", updatedPlayer);
         onPlayerWin(updatedPlayer);
       }
     } catch (error) {

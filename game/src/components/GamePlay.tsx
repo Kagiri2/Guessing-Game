@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../services/supabaseClient";
 import { Player, GameType, Item } from "../services/gameInterface";
+import { isCorrectAnswer } from "../functions/matchResult";
 
 interface PlayerWithGuess extends Player {
   lastIncorrectGuess?: string;
@@ -161,23 +162,6 @@ const GamePlay: React.FC<GamePlayProps> = ({
       setRoundStartTime(adjustedStartTime.toISOString());
       setUserGuess("");
       setIsRoundEnding(false);
-    }
-  };
-
-  const isCorrectAnswer = (userGuess: string, correctAnswer: string | string[]): boolean => {
-    const normalizedUserGuess = userGuess.toLowerCase().trim();
-    
-    if (Array.isArray(correctAnswer)) {
-      return correctAnswer.some(answer => 
-        normalizedUserGuess === answer.toLowerCase().trim() ||
-        answer.toLowerCase().trim().includes(normalizedUserGuess) ||
-        normalizedUserGuess.includes(answer.toLowerCase().trim())
-      );
-    } else {
-      const normalizedCorrectAnswer = correctAnswer.toLowerCase().trim();
-      return normalizedUserGuess === normalizedCorrectAnswer ||
-             normalizedCorrectAnswer.includes(normalizedUserGuess) ||
-             normalizedUserGuess.includes(normalizedCorrectAnswer);
     }
   };
 

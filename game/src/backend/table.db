@@ -1,0 +1,69 @@
+-- Create Categories Table
+CREATE TABLE categories (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create Items Table
+CREATE TABLE items (
+    id SERIAL PRIMARY KEY,
+    category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    image_url VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create Users Table
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create Rooms Table
+CREATE TABLE rooms (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL UNIQUE,  
+    player_count INTEGER DEFAULT 0,     
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create Games Table
+CREATE TABLE games (
+    id SERIAL PRIMARY KEY,
+    room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,  -- Link games to rooms
+    creator_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- Creator of the game
+    target_score INTEGER NOT NULL,  -- Target score to win
+    time_limit INTEGER,  -- Optional time limit for the game (in seconds)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create Game Players Table
+CREATE TABLE game_players (
+    id SERIAL PRIMARY KEY,
+    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,  -- Link players to games
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- Player in the game
+    score INTEGER DEFAULT 0,  -- Player's score
+    guessed_answers TEXT[],  -- Array to store user's guessed answers
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create User Guesses Table
+CREATE TABLE user_guesses (
+    id SERIAL PRIMARY KEY,
+    item_id INTEGER REFERENCES items(id) ON DELETE CASCADE,  -- Guessed item
+    game_player_id INTEGER REFERENCES game_players(id) ON DELETE CASCADE,  -- Player who made the guess
+    guessed_answer TEXT NOT NULL,  -- The answer guessed by the player
+    correct BOOLEAN NOT NULL,  -- Whether the guess was correct or not
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE game_players ADD COLUMN session_id TEXT;
+ALTER TABLE games ADD COLUMN category_id INTEGER REFERENCES categories(id);
+ALTER TABLE games
+ADD COLUMN current_item JSONB,
+ADD COLUMN round_start_time TIMESTAMP;
+ALTER TABLE games ADD COLUMN winner INTEGER REFERENCES game_players(id);
